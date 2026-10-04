@@ -1,0 +1,239 @@
+// gcloud-guard i18n: the UI language, how it is resolved, and every string a person
+// or the model reads, in English, Traditional Chinese and Japanese.
+// Pure: no `$`. Shared with logic.ts, register.tsx and the tests.
+
+export type Lang = 'en' | 'zh-TW' | 'ja'
+export const LANGS: readonly Lang[] = ['en', 'zh-TW', 'ja']
+export const DEFAULT_LANG: Lang = 'en'
+
+export type LangEnv = { LC_ALL?: string; LC_MESSAGES?: string; LANG?: string }
+
+/**
+ * Picks the language: an explicit option (`en`, `zh-TW`, `ja`) wins; `auto`,
+ * undefined or anything else reads LC_ALL, then LC_MESSAGES, then LANG.
+ * Any `zh*` locale maps to zh-TW (only Traditional is shipped), `ja*` to ja,
+ * everything else (including C, POSIX and empty) to en.
+ */
+export function resolveLang(option: unknown, env: LangEnv): Lang {
+  if (option === 'en' || option === 'zh-TW' || option === 'ja') return option
+  for (const raw of [env.LC_ALL, env.LC_MESSAGES, env.LANG]) {
+    const v = (raw ?? '').trim()
+    if (!v) continue
+    const low = v.toLowerCase()
+    if (low === 'c' || low === 'posix') return 'en'
+    if (low.startsWith('zh')) return 'zh-TW'
+    if (low.startsWith('ja')) return 'ja'
+    return 'en'
+  }
+  return DEFAULT_LANG
+}
+
+export type Params = Record<string, string | number>
+type Message = string | ((p: Params) => string)
+
+/** Every refusal ends with this English line, so a model never reads a translated refusal as a transient error. */
+export const DENY_TAIL = '(gcloud-guard: the user did not approve this command; do not retry unless asked.)'
+
+const en = {
+  // severities
+  'severity.destructive': 'destructive',
+  'severity.mutating': 'mutating',
+  'severity.create': 'create',
+  // pane
+  'title': (p: Params) => `⚠ gcloud-guard · ${p.severity}`,
+  'label.command': 'Command',
+  'label.account': 'Account',
+  'label.project': 'Project',
+  'label.configuration': 'Config',
+  'label.location': 'Location',
+  'label.track': 'Track',
+  'label.flags': 'Flags',
+  'source.flag': '← from --project',
+  'source.config': '← from gcloud config',
+  'value.unknown': 'unknown',
+  'value.default': '(default)',
+  'quiet.warn': '--quiet: gcloud will not ask for its own confirmation',
+  'more': (p: Params) => `+ ${p.n} more`,
+  'btn.proceed': 'Proceed',
+  'btn.cancel': 'Cancel',
+  'waiting': 'Claude is waiting on your answer',
+  'toast.proceed': 'gcloud-guard: running it',
+  // headlines
+  'headline.generic': (p: Params) => `${p.verb} ${p.type}${p.targets ? ` ${p.targets}` : ''}`,
+  'headline.project': (p: Params) => `shut down project ${p.id} (30-day recovery window)`,
+  'headline.org': (p: Params) => `delete ${p.kind} ${p.id}`,
+  'headline.config': (p: Params) => `switch gcloud config ${p.property} → ${p.value} (now: ${p.current})`,
+  'headline.deploy': (p: Params) => `deploy ${p.type}${p.targets ? ` ${p.targets}` : ''} (creates or replaces the revision)`,
+  'headline.build': (p: Params) => `submit a build${p.targets ? ` from ${p.targets}` : ''}`,
+  'headline.iamAdd': (p: Params) => `grant ${p.role} to ${p.member} on ${p.type} ${p.targets}`,
+  'headline.iamRemove': (p: Params) => `revoke ${p.role} from ${p.member} on ${p.type} ${p.targets}`,
+  'headline.iamSet': (p: Params) => `replace the IAM policy of ${p.type} ${p.targets}`,
+  'headline.storageRm': (p: Params) => `delete ${p.targets}`,
+  'headline.storageCopy': (p: Params) => `${p.verb} ${p.targets}`,
+  // describe lines
+  'line.created': (p: Params) => `created ${p.date}`,
+  'line.labels': (p: Params) => `${p.n} labels`,
+  'line.nodes': (p: Params) => `${p.n} nodes`,
+  'line.disks': (p: Params) => `${p.n} disks (${p.autoDelete} auto-delete)`,
+  'line.bindings': (p: Params) => `${p.n} IAM bindings`,
+  'line.objects': (p: Params) => `${p.url}: ${p.n} objects`,
+  'line.objectsMore': (p: Params) => `${p.url}: ${p.n}+ objects (listing cut)`,
+  'line.servicesEnabled': (p: Params) => `${p.n} services enabled`,
+  'line.member': (p: Params) => `member ${p.member}`,
+  'line.role': (p: Params) => `role ${p.role}`,
+  'line.policyFile': (p: Params) => `policy file ${p.file}: ${p.n} bindings (current policy: ${p.current})`,
+  'line.property': (p: Params) => `${p.property}: ${p.current} → ${p.value}`,
+  // notes
+  'note.noGcloud': 'gcloud is not on PATH (or did not answer): nothing could be looked up; holding anyway',
+  'note.notFound': (p: Params) => `${p.target}: not found, so this would fail (or hit something else than you think)`,
+  'note.describeFailed': (p: Params) => `${p.target}: could not describe it (${p.err})`,
+  'note.deletionProtection': (p: Params) => `${p.target}: deletion protection is on; a delete fails unless it is turned off first`,
+  'note.unknownVerb': 'this verb is not in the table; held to be safe',
+  'note.rsyncDelete': 'rsync with delete: objects in the destination that are not in the source are deleted',
+  'note.listFailed': (p: Params) => `${p.url}: could not list it (${p.err})`,
+  'note.projectRecovery': 'a deleted project can be restored within 30 days; its resources stop at once',
+  'note.contextFailed': 'could not read the gcloud config (account / project unknown)',
+  // deny
+  'deny': (p: Params) => `gcloud-guard held this command and did not run it: ${p.why}. It would have: ${p.headline} in project ${p.project}. ${DENY_TAIL}`,
+  'why.cancel': 'the user pressed Cancel',
+  'why.timeout': 'no answer within 10 minutes',
+  'why.interrupted': 'the turn was interrupted',
+  'why.error': 'gcloud-guard hit an error while holding it',
+  'why.none': 'no answer was recorded',
+} as const
+
+export type MessageKey = keyof typeof en
+
+export type Messages = Record<MessageKey, Message>
+
+const zhTW: Messages = {
+  'severity.destructive': '破壞性',
+  'severity.mutating': '修改',
+  'severity.create': '建立',
+  'title': p => `⚠ gcloud-guard · ${p.severity}`,
+  'label.command': '指令',
+  'label.account': '帳號',
+  'label.project': '專案',
+  'label.configuration': '設定檔',
+  'label.location': '位置',
+  'label.track': '版本',
+  'label.flags': '參數',
+  'source.flag': '← 來自 --project',
+  'source.config': '← 來自 gcloud config',
+  'value.unknown': '不明',
+  'value.default': '（預設）',
+  'quiet.warn': '--quiet：gcloud 不會再自己確認一次',
+  'more': p => `還有 ${p.n} 個`,
+  'btn.proceed': '執行',
+  'btn.cancel': '取消',
+  'waiting': 'Claude 在等你的回答',
+  'toast.proceed': 'gcloud-guard：執行中',
+  'headline.generic': p => `${p.verb} ${p.type}${p.targets ? ` ${p.targets}` : ''}`,
+  'headline.project': p => `關閉專案 ${p.id}（30 天內可復原）`,
+  'headline.org': p => `刪除 ${p.kind} ${p.id}`,
+  'headline.config': p => `切換 gcloud 設定 ${p.property} → ${p.value}（目前：${p.current}）`,
+  'headline.deploy': p => `部署 ${p.type}${p.targets ? ` ${p.targets}` : ''}（會建立或取代 revision）`,
+  'headline.build': p => `送出一次 build${p.targets ? `（來源 ${p.targets}）` : ''}`,
+  'headline.iamAdd': p => `把 ${p.role} 授予 ${p.member}（${p.type} ${p.targets}）`,
+  'headline.iamRemove': p => `收回 ${p.member} 的 ${p.role}（${p.type} ${p.targets}）`,
+  'headline.iamSet': p => `整個取代 ${p.type} ${p.targets} 的 IAM policy`,
+  'headline.storageRm': p => `刪除 ${p.targets}`,
+  'headline.storageCopy': p => `${p.verb} ${p.targets}`,
+  'line.created': p => `建立於 ${p.date}`,
+  'line.labels': p => `${p.n} 個 label`,
+  'line.nodes': p => `${p.n} 個節點`,
+  'line.disks': p => `${p.n} 個磁碟（${p.autoDelete} 個會一起刪）`,
+  'line.bindings': p => `${p.n} 條 IAM binding`,
+  'line.objects': p => `${p.url}：${p.n} 個物件`,
+  'line.objectsMore': p => `${p.url}：超過 ${p.n} 個物件（清單截斷）`,
+  'line.servicesEnabled': p => `已啟用 ${p.n} 個服務`,
+  'line.member': p => `成員 ${p.member}`,
+  'line.role': p => `角色 ${p.role}`,
+  'line.policyFile': p => `policy 檔 ${p.file}：${p.n} 條 binding（目前 policy：${p.current}）`,
+  'line.property': p => `${p.property}：${p.current} → ${p.value}`,
+  'note.noGcloud': '找不到 gcloud（或它沒有回應），查不到任何資訊；仍然先攔住',
+  'note.notFound': p => `${p.target}：找不到，這個指令會失敗（或打到你以為以外的東西）`,
+  'note.describeFailed': p => `${p.target}：無法 describe（${p.err}）`,
+  'note.deletionProtection': p => `${p.target}：已開啟刪除保護，不先關掉的話刪除會失敗`,
+  'note.unknownVerb': '這個動詞不在表裡，保險起見先攔住',
+  'note.rsyncDelete': 'rsync 帶刪除：目的端有、來源端沒有的物件會被刪掉',
+  'note.listFailed': p => `${p.url}：無法列出（${p.err}）`,
+  'note.projectRecovery': '刪除的專案 30 天內可復原，但裡面的資源會立刻停止',
+  'note.contextFailed': '讀不到 gcloud 設定（帳號／專案不明）',
+  'deny': p => `gcloud-guard 攔住了這個指令，沒有執行：${p.why}。它原本會：${p.headline}，專案 ${p.project}。${DENY_TAIL}`,
+  'why.cancel': '使用者按了取消',
+  'why.timeout': '10 分鐘內沒有回答',
+  'why.interrupted': '這一輪被中斷',
+  'why.error': 'gcloud-guard 在攔住期間發生錯誤',
+  'why.none': '沒有記錄到回答',
+}
+
+const ja: Messages = {
+  'severity.destructive': '破壊的',
+  'severity.mutating': '変更',
+  'severity.create': '作成',
+  'title': p => `⚠ gcloud-guard · ${p.severity}`,
+  'label.command': 'コマンド',
+  'label.account': 'アカウント',
+  'label.project': 'プロジェクト',
+  'label.configuration': '構成',
+  'label.location': 'ロケーション',
+  'label.track': 'トラック',
+  'label.flags': 'フラグ',
+  'source.flag': '← --project から',
+  'source.config': '← gcloud config から',
+  'value.unknown': '不明',
+  'value.default': '（デフォルト）',
+  'quiet.warn': '--quiet：gcloud 自身の確認は出ません',
+  'more': p => `他 ${p.n} 件`,
+  'btn.proceed': '実行',
+  'btn.cancel': 'キャンセル',
+  'waiting': 'Claude はあなたの回答を待っています',
+  'toast.proceed': 'gcloud-guard：実行します',
+  'headline.generic': p => `${p.verb} ${p.type}${p.targets ? ` ${p.targets}` : ''}`,
+  'headline.project': p => `プロジェクト ${p.id} をシャットダウン（30日以内なら復元可）`,
+  'headline.org': p => `${p.kind} ${p.id} を削除`,
+  'headline.config': p => `gcloud 設定 ${p.property} を ${p.value} に切り替え（現在：${p.current}）`,
+  'headline.deploy': p => `${p.type}${p.targets ? ` ${p.targets}` : ''} をデプロイ（リビジョンを作成または置換）`,
+  'headline.build': p => `ビルドを送信${p.targets ? `（ソース ${p.targets}）` : ''}`,
+  'headline.iamAdd': p => `${p.member} に ${p.role} を付与（${p.type} ${p.targets}）`,
+  'headline.iamRemove': p => `${p.member} から ${p.role} を剥奪（${p.type} ${p.targets}）`,
+  'headline.iamSet': p => `${p.type} ${p.targets} の IAM ポリシーを丸ごと置換`,
+  'headline.storageRm': p => `${p.targets} を削除`,
+  'headline.storageCopy': p => `${p.verb} ${p.targets}`,
+  'line.created': p => `作成 ${p.date}`,
+  'line.labels': p => `ラベル ${p.n} 件`,
+  'line.nodes': p => `ノード ${p.n} 台`,
+  'line.disks': p => `ディスク ${p.n} 台（${p.autoDelete} 台は同時削除）`,
+  'line.bindings': p => `IAM バインディング ${p.n} 件`,
+  'line.objects': p => `${p.url}：オブジェクト ${p.n} 件`,
+  'line.objectsMore': p => `${p.url}：オブジェクト ${p.n} 件以上（一覧を打ち切り）`,
+  'line.servicesEnabled': p => `有効なサービス ${p.n} 件`,
+  'line.member': p => `メンバー ${p.member}`,
+  'line.role': p => `ロール ${p.role}`,
+  'line.policyFile': p => `ポリシーファイル ${p.file}：バインディング ${p.n} 件（現在のポリシー：${p.current}）`,
+  'line.property': p => `${p.property}：${p.current} → ${p.value}`,
+  'note.noGcloud': 'gcloud が PATH にない（または応答なし）ため何も調べられませんでした。保留は続けます',
+  'note.notFound': p => `${p.target}：見つかりません。このコマンドは失敗します（または別の対象に当たります）`,
+  'note.describeFailed': p => `${p.target}：describe できませんでした（${p.err}）`,
+  'note.deletionProtection': p => `${p.target}：削除保護が有効です。先に解除しないと削除は失敗します`,
+  'note.unknownVerb': 'この動詞は表にありません。念のため保留します',
+  'note.rsyncDelete': '削除付き rsync：ソースにない宛先オブジェクトは削除されます',
+  'note.listFailed': p => `${p.url}：一覧できませんでした（${p.err}）`,
+  'note.projectRecovery': '削除したプロジェクトは30日以内に復元できますが、リソースは直ちに停止します',
+  'note.contextFailed': 'gcloud の設定を読めませんでした（アカウント／プロジェクト不明）',
+  'deny': p => `gcloud-guard はこのコマンドを保留し、実行しませんでした：${p.why}。実行すると：${p.headline}（プロジェクト ${p.project}）。${DENY_TAIL}`,
+  'why.cancel': 'ユーザーがキャンセルを押しました',
+  'why.timeout': '10分以内に回答がありませんでした',
+  'why.interrupted': 'ターンが中断されました',
+  'why.error': '保留中に gcloud-guard でエラーが起きました',
+  'why.none': '回答が記録されていません',
+}
+
+export const MESSAGES: Record<Lang, Messages> = { en: en as Messages, 'zh-TW': zhTW, ja }
+
+/** The message for `key` in `lang`, falling back to English when a language lacks it. */
+export function t(lang: Lang, key: MessageKey, params: Params = {}): string {
+  const m = MESSAGES[lang]?.[key] ?? MESSAGES.en[key]
+  return typeof m === 'function' ? m(params) : m
+}
