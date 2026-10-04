@@ -48,7 +48,7 @@ It works as soon as it is installed. No commands.
 |---|---|---|
 | `language` | `auto` | Language of the pane, the toast and the refusal text: `auto` (from `LC_ALL`, then `LC_MESSAGES`, then `LANG`: `zh*` gives Traditional Chinese, `ja*` Japanese, anything else English), `en`, `zh-TW` or `ja`. |
 
-Set it with `/plugin configure blast-radius@claude-code-mods`, or `--config language=ja` at install. Command names in the pane (`rm -rf`, `git reset --hard`, …) are never translated. Every refusal ends with the same English line, `(blast-radius: the user did not approve this command; do not retry unless asked.)`, so Claude reads a Japanese or Chinese refusal as a refusal, not as a transient error.
+Set it with `/plugin configure blast-radius@cockpit`, or `--config language=ja` at install. Command names in the pane (`rm -rf`, `git reset --hard`, …) are never translated. Every refusal ends with the same English line, `(blast-radius: the user did not approve this command; do not retry unless asked.)`, so Claude reads a Japanese or Chinese refusal as a refusal, not as a transient error.
 
 ## Beside the other mods in this repo
 

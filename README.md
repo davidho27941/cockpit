@@ -1,6 +1,6 @@
-# claude-code-mods
+# cockpit
 
-A collection of [Claude Code mods](https://code.claude.com/docs/en/plugins/mods/overview) by davidho27941. Three themes: show what an OpenSpec workflow and its sub agents are doing, hand over before compacting when the context fills up, and keep the prompt cache warm while a session idles. Plus one vendored mod from Anthropic that holds risky shell commands.
+Instruments for a Claude Code session: a collection of [mods](https://code.claude.com/docs/en/plugins/mods/overview) by davidho27941. Three themes: show what an OpenSpec workflow and its sub agents are doing, hand over before compacting when the context fills up, and keep the prompt cache warm while a session idles. Plus one vendored mod from Anthropic that holds risky shell commands.
 
 Every mod's UI can be shown in English, Traditional Chinese or Japanese: set the `language` option (`auto`, `en`, `zh-TW`, `ja`; `auto` follows `LC_ALL` / `LC_MESSAGES` / `LANG`).
 
@@ -24,23 +24,23 @@ Requires Claude Code **2.1.289 or later** (`claude --version`).
 Add the marketplace once:
 
 ```
-/plugin marketplace add davidho27941/claude-code-mods
+/plugin marketplace add davidho27941/cockpit
 ```
 
 Then install what you want:
 
 ```
-/plugin install opsx-board@claude-code-mods
-/plugin install auto-handover@claude-code-mods
-/plugin install cache-keeper@claude-code-mods
-/plugin install blast-radius@claude-code-mods
+/plugin install opsx-board@cockpit
+/plugin install auto-handover@cockpit
+/plugin install cache-keeper@cockpit
+/plugin install blast-radius@cockpit
 ```
 
 `claude plugin marketplace add …` and `claude plugin install …` work from a shell too. In a session that is already open, run `/reload-plugins`.
 
-**Updates:** auto-update is off by default for third-party marketplaces. Turn it on for this marketplace in the Marketplaces tab of `/plugin`, or run `/plugin marketplace update claude-code-mods`.
+**Updates:** auto-update is off by default for third-party marketplaces. Turn it on for this marketplace in the Marketplaces tab of `/plugin`, or run `/plugin marketplace update cockpit`.
 
-**Language:** each mod has a `language` setting (`/plugin configure <name>@claude-code-mods`). `auto` picks Traditional Chinese for any `zh*` locale, Japanese for `ja*`, English otherwise.
+**Language:** each mod has a `language` setting (`/plugin configure <name>@cockpit`). `auto` picks Traditional Chinese for any `zh*` locale, Japanese for `ja*`, English otherwise.
 
 ## opsx-board: a board for OpenSpec
 
@@ -100,8 +100,8 @@ claude plugin test ./plugins/<name>     # run the tests
 For ongoing work, add this folder as a local marketplace and install from it: the plugins are read straight from the folder (`claude plugin list` shows `Read from:` pointing here), they are present in every session, and after editing you run `/reload-plugins` inside Claude Code instead of reinstalling:
 
 ```bash
-claude plugin marketplace add /path/to/claude-code-mods
-claude plugin install <name>@claude-code-mods --scope user
+claude plugin marketplace add /path/to/cockpit
+claude plugin install <name>@cockpit --scope user
 ```
 
 Each plugin's `tsconfig.json` extends `.claude-plugin/types/`, the type declarations Claude Code writes when it loads the mod. That folder is in `.gitignore`.

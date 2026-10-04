@@ -1,6 +1,6 @@
 {
-  "name": "claude-code-mods",
-  "description": "Claude Code mods by davidho27941: an OpenSpec and sub agent board, hand over before compacting, keep the prompt cache warm, and Anthropic's blast-radius; UI in English, Traditional Chinese or Japanese",
+  "name": "cockpit",
+  "description": "cockpit: Claude Code mods by davidho27941. Instruments for the session: an OpenSpec and sub agent board, hand over before compacting, keep the prompt cache warm, and a pre-flight check for risky shell commands (blast-radius). UI in English, Traditional Chinese or Japanese.",
   "owner": {
     "name": "davidho27941",
     "url": "https://github.com/davidho27941"
