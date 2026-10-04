@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+.claude/
+# Type declarations Claude Code writes when it loads a mod; not part of the repo
+plugins/*/.claude-plugin/types/

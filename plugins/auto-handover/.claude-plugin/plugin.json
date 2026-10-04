@@ -1,0 +1,46 @@
+{
+  "name": "auto-handover",
+  "version": "0.1.0",
+  "description": "When context usage reaches your threshold, writes a handover note over the cached conversation prefix, compacts automatically, and hands the note to the compacted conversation and to the next session in the same project",
+  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "threshold": {
+      "type": "number",
+      "title": "Trigger threshold (%)",
+      "description": "Hand over and compact once context usage reaches this percentage. Clamped to 40..95.",
+      "default": 75
+    },
+    "handover_dir": {
+      "type": "string",
+      "title": "Handover notes folder",
+      "description": "Where notes are written: ~/… or an absolute path under your home directory; one subfolder per project.",
+      "default": "~/.claude/handovers"
+    },
+    "cooldown_minutes": {
+      "type": "number",
+      "title": "Cooldown (minutes)",
+      "description": "Minimum gap between two automatic handovers, so a still-high reading right after compaction does not trigger again.",
+      "default": 10
+    },
+    "resume_hours": {
+      "type": "number",
+      "title": "Reuse a note for this long (hours)",
+      "description": "A new session in the same project gets latest.md as opening context when it is younger than this. 0 disables it.",
+      "default": 24
+    },
+    "inject_after_compact": {
+      "type": "boolean",
+      "title": "Append the note after compaction",
+      "description": "After compaction, append the handover note to the conversation as a message the model reads and you do not see.",
+      "default": true
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the UI and of the handover note: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
+      "default": "auto",
+      "options": ["auto", "en", "zh-TW", "ja"]
+    }
+  }
+}

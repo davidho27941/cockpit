@@ -1,0 +1,29 @@
+blast-radius
+Copyright 2026 Anthropic PBC
+Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+
+Vendored from https://github.com/anthropics/claude-code-playground
+(claude-code/mods/blast-radius, commit 569c5283, 2026-10-01), with modifications.
+
+Modifications by davidho27941 (2026-10-04):
+- hooks/blast-radius.mjs: user-facing strings (pane labels, buttons, toast,
+  measurement summaries and notes, refusal messages) now come from
+  hooks/i18n.mjs through t(lang, key); a "session.start" hook reads LC_ALL,
+  LC_MESSAGES and LANG to pick the language when the option is "auto";
+  register(on, options) reads the "language" option; classify() is exported
+  for the tests. Classification, measuring and holding logic are unchanged.
+  The file keeps its original copyright header and carries a "Modified by"
+  note beneath it.
+- hooks/i18n.mjs (new): the strings in English, Traditional Chinese and
+  Japanese, and resolveLang().
+- .claude-plugin/plugin.json: gained a "userConfig" block with the "language"
+  option (auto / en / zh-TW / ja). Name, version, description, author and
+  keywords are the upstream's.
+- tests/blast-radius.test.ts (new): tests for resolveLang, dictionary
+  completeness and classify.
+- README.md (new, English), NOTICE (this file), LICENSE (a copy of the
+  upstream license) and tsconfig.json (editor type-checking against the types
+  Claude Code lays in .claude-plugin/types/) were added by davidho27941.
+
+Unmodified upstream files: hooks/hooks.json, screenshots/*, and the upstream
+README kept as README.upstream.md.

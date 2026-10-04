@@ -1,0 +1,30 @@
+{
+  "name": "claude-code-mods",
+  "description": "Claude Code mods by davidho27941: an OpenSpec and sub agent board, hand over before compacting, keep the prompt cache warm, and Anthropic's blast-radius; UI in English, Traditional Chinese or Japanese",
+  "owner": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
+  "plugins": [
+    {
+      "name": "opsx-board",
+      "source": "./plugins/opsx-board",
+      "description": "OpenSpec board: current phase (propose / apply / archive), the task in tasks.md being worked on, and every sub agent's description, model/effort, tokens and progress"
+    },
+    {
+      "name": "auto-handover",
+      "source": "./plugins/auto-handover",
+      "description": "When context usage reaches your threshold, writes a handover note first, then compacts, and hands the note to the compacted conversation and to the next session in the same project"
+    },
+    {
+      "name": "cache-keeper",
+      "source": "./plugins/cache-keeper",
+      "description": "Keeps the prompt cache warm while a session idles: one tiny request over the conversation prefix every 50 minutes (configurable) so the entry does not lapse after an hour"
+    },
+    {
+      "name": "blast-radius",
+      "source": "./plugins/blast-radius",
+      "description": "Holds risky shell commands (rm -rf, git reset --hard, git clean, force push, migrations), measures what they would change, then asks you to Proceed or Cancel. Vendored from anthropics/claude-code-playground, Apache-2.0"
+    }
+  ]
+}

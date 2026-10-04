@@ -1,0 +1,34 @@
+{
+  "name": "opsx-board",
+  "version": "0.1.0",
+  "description": "OpenSpec board: which phase you are in (propose/apply/archive), which tasks.md task is current, and every sub agent's name, model/effort, tokens and progress",
+  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
+      "default": "auto",
+      "options": ["auto", "en", "zh-TW", "ja"]
+    },
+    "strict": {
+      "type": "boolean",
+      "title": "Strict mode",
+      "description": "Refuse an Edit/Write that ticks several tasks.md tasks at once; the model must report each task through the task tool. Off, such an edit only gets a reminder.",
+      "default": false
+    },
+    "inject_instructions": {
+      "type": "boolean",
+      "title": "Inject reporting rule",
+      "description": "Append a \"call the task tool when each task starts and finishes\" rule to the openspec-apply-change skill and to the system prompt while in the apply phase.",
+      "default": true
+    },
+    "auto_open": {
+      "type": "boolean",
+      "title": "Auto-open pane",
+      "description": "Open the pane when the apply phase starts or the first sub agent spawns (drawn only in a terminal at least 144 columns wide).",
+      "default": true
+    }
+  }
+}
