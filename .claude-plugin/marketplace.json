@@ -1,6 +1,6 @@
 {
   "name": "cockpit",
-  "description": "cockpit: Claude Code mods by davidho27941. Instruments for the session: an OpenSpec and sub agent board, hand over before compacting, keep the prompt cache warm, and pre-flight checks for risky shell commands (blast-radius) and Google Cloud changes (gcloud-guard). UI in English, Traditional Chinese or Japanese.",
+  "description": "cockpit: Claude Code mods by davidho27941. Instruments for the session: an OpenSpec and sub agent board, hand over before compacting, keep the prompt cache warm, pre-flight checks for risky shell commands (blast-radius) and Google Cloud changes (gcloud-guard), and a secret redactor. UI in English, Traditional Chinese or Japanese.",
   "owner": {
     "name": "davidho27941",
     "url": "https://github.com/davidho27941"
@@ -30,6 +30,11 @@
       "name": "gcloud-guard",
       "source": "./plugins/gcloud-guard",
       "description": "Holds gcloud and gsutil commands that create, change or delete cloud resources, shows the account, project, location and the resource's current state, then asks you to Proceed or Cancel"
+    },
+    {
+      "name": "secret-guard",
+      "source": "./plugins/secret-guard",
+      "description": "Keeps API keys, cloud credentials and other secrets out of what is sent to the model: every prompt, tool result and context block is scanned and each match is replaced with a placeholder such as <google api key>"
     }
   ]
 }

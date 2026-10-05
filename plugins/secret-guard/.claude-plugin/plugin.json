@@ -1,0 +1,52 @@
+{
+  "name": "secret-guard",
+  "version": "0.1.0",
+  "description": "Keeps API keys, cloud credentials and other secrets out of what is sent to the model: every text that enters the conversation is scanned and each match is replaced with a meaningful placeholder such as <google api key>.",
+  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja. Placeholders stay English in every language.",
+      "default": "auto",
+      "options": ["auto", "en", "zh-TW", "ja"]
+    },
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Off: nothing is scanned or rewritten",
+      "default": true
+    },
+    "keep_hint": {
+      "type": "boolean",
+      "title": "Keep a hint",
+      "description": "Keep the last 4 characters of each secret in the placeholder, e.g. <google api key …Zx3f>, to tell keys apart",
+      "default": false
+    },
+    "entropy_backstop": {
+      "type": "boolean",
+      "title": "High-entropy backstop",
+      "description": "Also redact long random-looking tokens that sit next to a secret-ish name (key, token, password, …)",
+      "default": true
+    },
+    "custom_patterns": {
+      "type": "string",
+      "title": "Custom patterns",
+      "description": "Extra detectors, one per line as label=regex (JavaScript syntax, applied globally). Invalid lines are reported once and ignored.",
+      "default": ""
+    },
+    "allow_patterns": {
+      "type": "string",
+      "title": "Allow patterns",
+      "description": "One regex per line; a match that also matches one of these is left alone (test fixtures, documented examples)",
+      "default": ""
+    },
+    "scan_tool_results": {
+      "type": "boolean",
+      "title": "Scan tool results",
+      "description": "Off: only your own prompts, slash-command rows and the context blocks are scanned; file contents, command output and other tool results pass through",
+      "default": true
+    }
+  }
+}

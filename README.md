@@ -1,6 +1,6 @@
 # cockpit
 
-Instruments for a Claude Code session: a collection of [mods](https://code.claude.com/docs/en/plugins/mods/overview) by davidho27941. Three themes: show what an OpenSpec workflow and its sub agents are doing, hand over before compacting when the context fills up, and keep the prompt cache warm while a session idles. Plus two pre-flight checks: one vendored from Anthropic that holds risky shell commands, and one for Google Cloud changes.
+Instruments for a Claude Code session: a collection of [mods](https://code.claude.com/docs/en/plugins/mods/overview) by davidho27941. Three themes: show what an OpenSpec workflow and its sub agents are doing, hand over before compacting when the context fills up, and keep the prompt cache warm while a session idles. Plus two pre-flight checks, one vendored from Anthropic that holds risky shell commands and one for Google Cloud changes, and a redactor that keeps secrets out of what the model reads.
 
 Every mod's UI can be shown in English, Traditional Chinese or Japanese: set the `language` option (`auto`, `en`, `zh-TW`, `ja`; `auto` follows `LC_ALL` / `LC_MESSAGES` / `LANG`).
 
@@ -14,6 +14,7 @@ Every mod's UI can be shown in English, Traditional Chinese or Japanese: set the
 | [`auto-handover`](plugins/auto-handover) | When context usage reaches your threshold, writes a handover note first, then compacts, and hands the note to the compacted conversation and to the next session in the same project. | 0.1.0 |
 | [`cache-keeper`](plugins/cache-keeper) | Keeps the prompt cache warm while a session idles by sending one tiny request over the conversation prefix every 50 minutes (configurable), so the entry does not lapse after an hour. | 0.1.0 |
 | [`gcloud-guard`](plugins/gcloud-guard) | Holds `gcloud` and `gsutil` commands that create, change or delete cloud resources. Shows the account, project, location and the resource's current state (via read-only `describe`), then asks you to Proceed or Cancel. Follows the blast-radius pattern, written fresh under MIT. | 0.1.0 |
+| [`secret-guard`](plugins/secret-guard) | Scans every prompt, tool result and context block before it reaches the model and replaces API keys, cloud credentials, private keys, tokens and passwords with placeholders such as `<google api key>` or `<gcp service account private key>`. Shows what was redacted, never the value. | 0.1.0 |
 | [`blast-radius`](plugins/blast-radius) | Holds a risky shell command (`rm -rf`, `git reset --hard`, `git clean`, force push, migrations), measures what it would change, and asks you to Proceed or Cancel. Vendored from [anthropics/claude-code-playground](https://github.com/anthropics/claude-code-playground) under Apache-2.0, with a `language` option added. | 0.1.0 (upstream) |
 
 Each mod installs on its own. When several are installed, their lines above the prompt stack, separated by a thin rule; each pane has its own tab.
@@ -36,6 +37,7 @@ Then install what you want:
 /plugin install cache-keeper@cockpit
 /plugin install blast-radius@cockpit
 /plugin install gcloud-guard@cockpit
+/plugin install secret-guard@cockpit
 ```
 
 `claude plugin marketplace add …` and `claude plugin install …` work from a shell too. In a session that is already open, run `/reload-plugins`.
@@ -88,6 +90,12 @@ The same hold-and-ask pattern as blast-radius, for the Google Cloud CLI. When Cl
 
 Details, the full verb table and limits: [plugins/gcloud-guard/README.md](plugins/gcloud-guard/README.md).
 
+## secret-guard: keep secrets out of the prompt
+
+Every row that enters the conversation passes one engine event, `session.append`: the person's prompt, every tool result (a `Read` of a `.env` file, a `Bash` that prints a config), pasted attachments, hook context and sub agent conversations. secret-guard hooks that event, plus the prompt box and the context blocks, scans the text for known secret shapes (GCP service account keys and PEM private keys, Google API keys and OAuth tokens, AWS, Anthropic, OpenAI, GitHub, Slack, Stripe, JWTs, bearer and basic auth, URL passwords, `KEY=value` assignments, a conservative entropy backstop) and replaces each match with a stable placeholder before the row is stored, so the model never reads the value and the transcript's message rows do not keep it either. A toast says what was redacted; `/secret-guard` shows the totals. Custom patterns and an allowlist are settings. It is a safety net, not data-loss prevention: see the limits in its README.
+
+Details and the detector table: [plugins/secret-guard/README.md](plugins/secret-guard/README.md).
+
 ## What each mod does before you install it
 
 Mods do not run in a sandbox; they run inside Claude Code with your permissions. Read the source before installing, or clone and run `claude plugin validate ./plugins/<name>` to see which events it hooks and which capabilities it calls. Each mod's README carries the v0.1.0 result and its boundary. In short:
@@ -96,6 +104,7 @@ Mods do not run in a sandbox; they run inside Claude Code with your permissions.
 - **auto-handover**: reads and writes only under the user-level `handover_dir` (default `~/.claude/handovers`); one `$.model.fork` per handover plus the compaction's own summarizer request; no network, no shell.
 - **cache-keeper**: no files, no shell; one tiny model request per interval, only while idle, never during a turn, and it stops past the idle cap.
 - **gcloud-guard**: watches the Bash tool only; measures with read-only `gcloud … describe` / `config get-value` / `storage ls` calls, passing arguments as argv, never as shell source; no files beyond reading an IAM policy file named on the command line, no network of its own, no model calls. After Proceed the command runs as written.
+- **secret-guard**: rewrites text only, inside the engine: no files, no shell, no network, no model calls; it never stores or shows a matched value, only its label.
 - **blast-radius**: watches the Bash tool only; measures with `bash` / `find` / `du` / `git` and the migration tool's own status command, passing paths as arguments, never as shell source; no files, no network, no model calls. After Proceed the command runs as written: it is a safety net, not a sandbox.
 
 ## Development
@@ -117,4 +126,4 @@ Each plugin's `tsconfig.json` extends `.claude-plugin/types/`, the type declarat
 
 ## License
 
-The four mods written here (opsx-board, auto-handover, cache-keeper, gcloud-guard) and the repository's root files are [MIT](LICENSE). `plugins/blast-radius/` comes from Anthropic's claude-code-playground under the Apache License 2.0, Copyright Anthropic PBC; the full license text and the list of modifications are in that folder's `LICENSE` and `NOTICE`.
+The five mods written here (opsx-board, auto-handover, cache-keeper, gcloud-guard, secret-guard) and the repository's root files are [MIT](LICENSE). `plugins/blast-radius/` comes from Anthropic's claude-code-playground under the Apache License 2.0, Copyright Anthropic PBC; the full license text and the list of modifications are in that folder's `LICENSE` and `NOTICE`.
