@@ -258,7 +258,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const ENTROPY_DETECTOR: Detector = {
   id: 'high-entropy',
   label: 'high-entropy secret',
-  regex: /(?<![A-Za-z0-9+/=_<-])[A-Za-z0-9+/=_-]{32,}(?![A-Za-z0-9+/=_-])/g,
+  // `=` is allowed only as trailing base64 padding, so `NAME=value` never becomes one token with the name
+  regex: /(?<![A-Za-z0-9+/_<-])[A-Za-z0-9+/_-]{32,}={0,2}(?![A-Za-z0-9+/=_-])/g,
   skip: (v, m) => {
     if (/^[0-9a-fA-F]+$/.test(v)) return true
     if (UUID_RE.test(v)) return true

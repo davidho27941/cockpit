@@ -261,6 +261,10 @@ describe('redact', () => {
     expect(r(`token image data:image/png;base64,${HIGH_ENTROPY}`)).toBe(`token image data:image/png;base64,${HIGH_ENTROPY}`)
     const off = readSettings({ entropy_backstop: false })
     expect(r(`signing_key: ${HIGH_ENTROPY}`, off)).toBe(`signing_key: ${HIGH_ENTROPY}`)
+    // regression: a NAME=value line is never swallowed as one token; a hex hash after a secret-ish name stays
+    const sha = '3b2c4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d'
+    expect(r(`NOT_A_SECRET_SHA=${sha}`)).toBe(`NOT_A_SECRET_SHA=${sha}`)
+    expect(r(`API_SECRET_BLOB=${HIGH_ENTROPY}`)).toBe('API_SECRET_BLOB=<high-entropy secret>')
   })
 
   test('isPlaceholderValue', async () => {
