@@ -2,7 +2,10 @@
   "name": "auto-handover",
   "version": "0.1.0",
   "description": "When context usage reaches your threshold, writes a handover note over the cached conversation prefix, compacts automatically, and hands the note to the compacted conversation and to the next session in the same project",
-  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "author": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "threshold": {
@@ -40,7 +43,23 @@
       "title": "Language",
       "description": "Language of the UI and of the handover note: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
       "default": "auto",
-      "options": ["auto", "en", "zh-TW", "ja"]
+      "options": [
+        "auto",
+        "en",
+        "zh-TW",
+        "ja"
+      ]
+    },
+    "band_style": {
+      "type": "string",
+      "title": "Band style",
+      "description": "How this mod's line above the prompt is framed: box (a rounded frame), rule (a thin line beneath), plain (text only)",
+      "default": "box",
+      "options": [
+        "box",
+        "rule",
+        "plain"
+      ]
     }
   }
 }

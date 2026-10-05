@@ -531,4 +531,46 @@ describe('opsx-board', () => {
     await cmd($, w, 'opsx:apply', CHANGE)
     expect(has(await texts($, PANE), /^▶ 1\.2 Add migration \(inferred\)/)).toBe(true)
   })
+
+  // The band's frame: a rounded dim box by default (never yellow for this mod), the old rule or bare text on request.
+  async function frames($: any): Promise<{ boxes: any[]; texts: string[] }> {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const boxes = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    const found = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    return { boxes, texts: found.map((x: any) => String(x.text ?? '')) }
+  }
+
+  test('band_style=box (default): the line sits in a rounded dim frame, no rule, the engine band beneath', async ($, on) => {
+    const w = world(on, { [TASKS]: TASKS_MD })
+    await start($, on, w)
+    await cmd($, w, 'opsx:apply', CHANGE)
+    const { boxes, texts } = await frames($)
+    expect(boxes.length).toBe(1)
+    expect(boxes[0]?.props?.borderDimColor).toBe(true)
+    expect(boxes[0]?.props?.borderColor).toBe(undefined)
+    expect(has(texts, /^─+$/)).toBe(false)
+    expect(has(texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=rule draws the thin line beneath when a plugin is below', { options: { band_style: 'rule' } }, async ($, on) => {
+    const w = world(on, { [TASKS]: TASKS_MD })
+    await start($, on, w)
+    await cmd($, w, 'opsx:apply', CHANGE)
+    const { boxes, texts } = await frames($)
+    expect(boxes.length).toBe(0)
+    expect(has(texts, /^─+$/)).toBe(true)
+    expect(has(texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=plain draws neither frame nor rule', { options: { band_style: 'plain' } }, async ($, on) => {
+    const w = world(on, { [TASKS]: TASKS_MD })
+    await start($, on, w)
+    await cmd($, w, 'opsx:apply', CHANGE)
+    const { boxes, texts } = await frames($)
+    expect(boxes.length).toBe(0)
+    expect(has(texts, /^─+$/)).toBe(false)
+    expect(has(texts, /^⧉ opsx apply add-auth/)).toBe(true)
+    expect(has(texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
 })

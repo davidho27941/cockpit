@@ -62,7 +62,7 @@ Placeholders are English in every UI language: the model reads them and they mus
 
 ## Usage
 
-Installed, it is on. The band above the prompt appears once something has been redacted.
+Installed, it is on. The band above the prompt appears once something has been redacted: one line in its own rounded frame, stacked with the other mods' frames; the frame turns yellow while the mod is paused or a custom pattern did not compile (`band_style`).
 
 | Command | Does |
 |---|---|
@@ -81,6 +81,7 @@ Installed, it is on. The band above the prompt appears once something has been r
 | `custom_patterns` | empty | Extra detectors, one per line as `label=regex` (JavaScript regex; `/…/i` form accepted; `g` is added). An invalid line is shown once in the band and in the status, and ignored. |
 | `allow_patterns` | empty | One regex per line; a match that also matches one of these is left alone. The AWS documentation example pair (`AKIAIOSFODNN7EXAMPLE` and its secret) is always allowed. |
 | `scan_tool_results` | `true` | Off: only your prompts, slash-command rows and the context blocks are scanned; tool results, attachments, deliveries, notes and compaction summaries pass through |
+| `band_style` | `box` | How the band line is framed: `box` (a rounded frame, dim normally and yellow while paused or with an invalid custom pattern), `rule` (a thin line beneath it), `plain` (text only) |
 
 Set them with `/plugin configure secret-guard@cockpit`.
 

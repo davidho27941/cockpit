@@ -2,7 +2,10 @@
   "name": "cache-keeper",
   "version": "0.1.0",
   "description": "Keeps the prompt cache warm while a session idles: every 50 minutes (configurable) one tiny request over the conversation prefix, so the entry does not lapse after an hour",
-  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "author": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "interval_minutes": {
@@ -34,7 +37,23 @@
       "title": "Language",
       "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
       "default": "auto",
-      "options": ["auto", "en", "zh-TW", "ja"]
+      "options": [
+        "auto",
+        "en",
+        "zh-TW",
+        "ja"
+      ]
+    },
+    "band_style": {
+      "type": "string",
+      "title": "Band style",
+      "description": "How this mod's line above the prompt is framed: box (a rounded frame), rule (a thin line beneath), plain (text only)",
+      "default": "box",
+      "options": [
+        "box",
+        "rule",
+        "plain"
+      ]
     }
   }
 }

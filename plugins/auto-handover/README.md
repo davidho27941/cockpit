@@ -8,7 +8,7 @@ Claude Code's own auto-compact acts close to the limit, and what the summary kee
 ⟲ context 72% / threshold 75% · last handover 12m ago · ~/.claude/handovers/Users-me-code-shop/latest.md
 ```
 
-While a handover runs, the band turns yellow:
+The line sits in its own rounded frame, stacked with the other mods' frames above the prompt (`band_style`). While a handover runs, the line and its frame turn yellow:
 
 ```
 ⟲ Handing over: asking the model for a note…
@@ -47,6 +47,7 @@ Manual `/compact` and the engine's own auto-compact also pass through this mod: 
 | `resume_hours` | `24` | A new session in the same project gets `latest.md` as opening context when it is younger than this; `0` disables it |
 | `inject_after_compact` | `true` | Append the note to the conversation after compaction |
 | `language` | `auto` | Language of the UI and of the note: `auto` reads `LC_ALL`, then `LC_MESSAGES`, then `LANG` (`zh*` → Traditional Chinese, `ja*` → Japanese, anything else → English); or `en`, `zh-TW`, `ja` |
+| `band_style` | `box` | How the band line is framed: `box` (its own rounded frame, dim normally and yellow while a handover runs or something is wrong), `rule` (a thin line beneath it), `plain` (text only) |
 
 The language applies to the band, toasts, `/handover` output, the note's headings, the prompt that asks for the note, the compaction instructions and the framing of the appended and resumed notes. The note's body is written in the language the conversation itself uses.
 

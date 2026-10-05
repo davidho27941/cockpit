@@ -32,7 +32,7 @@ import {
   pokeText,
   statusText,
 } from './logic'
-import type { KeeperConfig, KeeperState } from './logic'
+import type { BandStyle, KeeperConfig, KeeperState } from './logic'
 
 const state = atom({ plugin: 'cache-keeper', key: 'state' } as const, EMPTY_STATE)
 const tickAt = atom({ plugin: 'cache-keeper', key: 'tickAt' } as const, 0)
@@ -184,18 +184,49 @@ async function onAbovePrompt($: any, e: any, next: any) {
   const l = (await read($, langState)) as Lang
   const text = bandText(await read($, state), config, await $.clock.now(), l)
   if (text === null) return next(e)
-  const { Box, Text } = $.ui.resolve(e)
-  // AbovePrompt is a hook chain: draw our line first, then what the plugins beneath drew
+  const ui = $.ui.resolve(e)
+  const { Text } = ui
+  // AbovePrompt is a hook chain: draw our line in its frame, then what the plugins beneath drew
   const below = await next(e)
-  // A thin rule between our line and the band of the plugin beneath; none when the engine drew nothing of its own
+  const s = await read($, state)
+  return frameBand(
+    ui,
+    config.bandStyle,
+    s.backoffMs > 0,
+    e.props?.bodyColumns,
+    <Text wrap="truncate-end" dimColor>
+      {text}
+    </Text>,
+    below,
+  )
+}
+
+/**
+ * Frames this mod's band content per `band_style` and stacks the plugins beneath under it.
+ * `box`: a rounded frame (yellow when `isWarning`, here while backing off after failures);
+ * `rule`: a dim line beneath, only when another plugin drew something below; `plain`: the bare text.
+ */
+function frameBand(ui: { Box: any; Text: any }, style: BandStyle, isWarning: boolean, bodyColumns: number | undefined, content: any, below: any) {
+  const { Box, Text } = ui
   const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
-  const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
+  const own =
+    style === 'box' ? (
+      <Box key="frame" flexDirection="column" borderStyle="round" borderDimColor={isWarning ? undefined : true} borderColor={isWarning ? 'yellow' : undefined} paddingX={1}>
+        {content}
+      </Box>
+    ) : style === 'rule' ? (
+      <Box key="frame" flexDirection="column">
+        {content}
+        {hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(bodyColumns ?? 60, 200)))}</Text> : null}
+      </Box>
+    ) : (
+      <Box key="frame" flexDirection="column">
+        {content}
+      </Box>
+    )
   return (
     <Box flexDirection="column">
-      <Text wrap="truncate-end" dimColor>
-        {text}
-      </Text>
-      {rule}
+      {own}
       {below}
     </Box>
   )

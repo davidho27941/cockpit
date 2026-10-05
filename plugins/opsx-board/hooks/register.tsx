@@ -52,11 +52,12 @@ import {
   statusFromReason,
   statusText,
   strictDenyText,
+  parseBandStyle,
   tasksPathOf,
   toolDescription,
   truncate,
 } from './logic'
-import type { PaneRow } from './logic'
+import type { BandStyle, PaneRow } from './logic'
 
 const phase = atom({ plugin: 'opsx-board', key: 'phase' } as const, IDLE_PHASE)
 const tasks = atom({ plugin: 'opsx-board', key: 'tasks' } as const, null)
@@ -73,6 +74,38 @@ let strict = false
 let inject = true
 let autoOpen = true
 let langOption: unknown = 'auto'
+let bandStyle: BandStyle = 'box'
+
+/**
+ * Frames this mod's band content per `band_style` and stacks the plugins beneath under it.
+ * `box`: a rounded frame (yellow when `isWarning`); `rule`: a dim line beneath, only when another
+ * plugin drew something below; `plain`: the bare text.
+ */
+function frameBand(ui: { Box: any; Text: any }, style: BandStyle, isWarning: boolean, bodyColumns: number | undefined, content: any, below: any) {
+  const { Box, Text } = ui
+  const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
+  const own =
+    style === 'box' ? (
+      <Box key="frame" flexDirection="column" borderStyle="round" borderDimColor={isWarning ? undefined : true} borderColor={isWarning ? 'yellow' : undefined} paddingX={1}>
+        {content}
+      </Box>
+    ) : style === 'rule' ? (
+      <Box key="frame" flexDirection="column">
+        {content}
+        {hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(bodyColumns ?? 60, 200)))}</Text> : null}
+      </Box>
+    ) : (
+      <Box key="frame" flexDirection="column">
+        {content}
+      </Box>
+    )
+  return (
+    <Box flexDirection="column">
+      {own}
+      {below}
+    </Box>
+  )
+}
 // Module-level state: a hot reload resets it, which is fine
 let lang: Lang = DEFAULT_LANG
 let ticks = 0
@@ -231,6 +264,7 @@ export const register: Register = (on, options) => {
   inject = o.inject_instructions !== false
   autoOpen = o.auto_open !== false
   langOption = o.language
+  bandStyle = parseBandStyle(o.band_style)
 
   on('session.start', async ($, e, next) => {
     const out = await next(e)
@@ -537,20 +571,19 @@ export const register: Register = (on, options) => {
       ? bandText(L, DEMO_PHASE, DEMO_TASKS, DEMO_AGENTS, DEMO_NOW - 3000, now)
       : bandText(L, await read($, phase), await read($, tasks), await read($, agents), await read($, updatedAt), now)
     if (text === null) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    // AbovePrompt is a chain: draw our line, then whatever the plugins beneath drew
+    const ui = $.ui.resolve(e)
+    const { Text } = ui
+    // AbovePrompt is a chain: draw our line in its frame, then whatever the plugins beneath drew
     const below = await next(e)
-    // A thin rule between our line and the band of the plugin beneath; none when the engine drew nothing of its own
-    const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
-    const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
-    return (
-      <Box flexDirection="column">
-        <Text wrap="truncate-end" dimColor>
-          {text}
-        </Text>
-        {rule}
-        {below}
-      </Box>
+    return frameBand(
+      ui,
+      bandStyle,
+      false,
+      e.props.bodyColumns,
+      <Text wrap="truncate-end" dimColor>
+        {text}
+      </Text>,
+      below,
     )
   })
 

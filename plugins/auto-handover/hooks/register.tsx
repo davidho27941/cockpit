@@ -37,7 +37,7 @@ import {
   tildify,
   truncate,
 } from './logic'
-import type { Lang, Settings } from './logic'
+import type { BandStyle, Lang, Settings } from './logic'
 
 const lastPercent = atom({ plugin: 'auto-handover', key: 'lastPercent' } as const, null)
 const phase = atom({ plugin: 'auto-handover', key: 'phase' } as const, 'idle')
@@ -506,20 +506,50 @@ export const register: Register = (on, options) => {
       await read($, langState),
     )
     if (line === null) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    // AbovePrompt is a hook chain: draw our own line first, then stack what the plugins below drew.
+    const ui = $.ui.resolve(e)
+    const { Text } = ui
+    // AbovePrompt is a hook chain: draw our own line in its frame, then stack what the plugins below drew.
     const below = await next(e)
-    // A thin rule between our line and the band of the plugin beneath; none when the engine drew nothing of its own
-    const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
-    const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
-    return (
-      <Box flexDirection="column">
-        <Text wrap="truncate-end" dimColor={line.tone === 'dim'} color={line.tone === 'warn' ? 'yellow' : undefined}>
-          {line.text}
-        </Text>
-        {rule}
-        {below}
-      </Box>
+    return frameBand(
+      ui,
+      settings.bandStyle,
+      line.tone === 'warn',
+      e.props.bodyColumns,
+      <Text wrap="truncate-end" dimColor={line.tone === 'dim'} color={line.tone === 'warn' ? 'yellow' : undefined}>
+        {line.text}
+      </Text>,
+      below,
     )
   })
+}
+
+/**
+ * Frames this mod's band content per `band_style` and stacks the plugins beneath under it.
+ * `box`: a rounded frame (yellow when `isWarning`); `rule`: a dim line beneath, only when another
+ * plugin drew something below; `plain`: the bare text.
+ */
+function frameBand(ui: { Box: any; Text: any }, style: BandStyle, isWarning: boolean, bodyColumns: number | undefined, content: any, below: any) {
+  const { Box, Text } = ui
+  const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
+  const own =
+    style === 'box' ? (
+      <Box key="frame" flexDirection="column" borderStyle="round" borderDimColor={isWarning ? undefined : true} borderColor={isWarning ? 'yellow' : undefined} paddingX={1}>
+        {content}
+      </Box>
+    ) : style === 'rule' ? (
+      <Box key="frame" flexDirection="column">
+        {content}
+        {hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(bodyColumns ?? 60, 200)))}</Text> : null}
+      </Box>
+    ) : (
+      <Box key="frame" flexDirection="column">
+        {content}
+      </Box>
+    )
+  return (
+    <Box flexDirection="column">
+      {own}
+      {below}
+    </Box>
+  )
 }

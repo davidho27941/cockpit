@@ -120,7 +120,7 @@ async function bandTexts($: any, surface: 'terminal' | 'desktop' = 'terminal', p
 
 const has = (lines: string[], re: RegExp) => lines.some(l => re.test(l))
 
-const cfg = (over: Partial<KeeperConfig> = {}): KeeperConfig => ({ enabled: true, intervalMs: 50 * MIN, idleCapMs: 4 * HOUR, showBand: true, language: 'en', ...over })
+const cfg = (over: Partial<KeeperConfig> = {}): KeeperConfig => ({ enabled: true, intervalMs: 50 * MIN, idleCapMs: 4 * HOUR, showBand: true, language: 'en', bandStyle: 'box', ...over })
 const st = (over: Partial<KeeperState> = {}): KeeperState => ({ ...EMPTY_STATE, ...over })
 
 // ── Pure functions ──────────────────────────────────────────────────────────
@@ -135,9 +135,10 @@ describe('logic', () => {
 
   test('parseConfig: defaults, numeric strings, idle cap 0 = none, raw language', async () => {
     const d = parseConfig(undefined)
-    expect(d).toEqual({ enabled: true, intervalMs: 50 * MIN, idleCapMs: 4 * HOUR, showBand: true, language: undefined })
-    const c = parseConfig({ interval_minutes: '20', max_idle_hours: 0, enabled: 'false', show_band: false, language: 'ja' })
-    expect(c).toEqual({ enabled: false, intervalMs: 20 * MIN, idleCapMs: 0, showBand: false, language: 'ja' })
+    expect(d).toEqual({ enabled: true, intervalMs: 50 * MIN, idleCapMs: 4 * HOUR, showBand: true, language: undefined, bandStyle: 'box' })
+    const c = parseConfig({ interval_minutes: '20', max_idle_hours: 0, enabled: 'false', show_band: false, language: 'ja', band_style: 'rule' })
+    expect(c).toEqual({ enabled: false, intervalMs: 20 * MIN, idleCapMs: 0, showBand: false, language: 'ja', bandStyle: 'rule' })
+    expect(parseConfig({ band_style: 'fancy' }).bandStyle).toBe('box')
     expect(parseConfig({ max_idle_hours: -3 }).idleCapMs).toBe(0)
   })
 
@@ -412,6 +413,54 @@ describe('cache-keeper', () => {
     expect(has(await bandTexts($, 'terminal', { hasSurvey: true }), /♨/)).toBe(false)
     await w.clock.advance(HOUR)
     expect(has(await bandTexts($), /warming stopped/)).toBe(true)
+  })
+
+  // The band's frame: a rounded box, dim normally and yellow while backing off after failures.
+  async function frames($: any): Promise<{ boxes: any[]; texts: string[] }> {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const boxes = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    const found = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    return { boxes, texts: found.map((x: any) => String(x.text ?? '')) }
+  }
+
+  test('band_style=box (default): dim frame, no rule; yellow while backing off', { options: { interval_minutes: 10, max_idle_hours: 0 } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await turn($, w)
+    let f = await frames($)
+    expect(f.boxes.length).toBe(1)
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(true)
+    expect(f.boxes[0]?.props?.borderColor).toBe(undefined)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+    w.reply = { kind: 'api-error' }
+    await w.clock.advance(10 * MIN)
+    f = await frames($)
+    expect(has(f.texts, /backing off/)).toBe(true)
+    expect(f.boxes[0]?.props?.borderColor).toBe('yellow')
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(undefined)
+  })
+
+  test('band_style=rule draws the thin line beneath when a plugin is below', { options: { interval_minutes: 10, band_style: 'rule' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await turn($, w)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=plain draws neither frame nor rule', { options: { interval_minutes: 10, band_style: 'plain' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await turn($, w)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /♨ cache warm/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
   })
 
   test('band: show_band=false takes no line', { options: { interval_minutes: 10, show_band: false } }, async ($, on) => {

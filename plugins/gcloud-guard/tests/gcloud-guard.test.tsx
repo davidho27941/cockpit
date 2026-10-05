@@ -27,6 +27,7 @@ import {
   parseGcloudIni,
   parseKubeContext,
   readSettings,
+  kubeProjectMismatch,
   splitKubeconfigList,
   splitSegments,
   stripWrappers,
@@ -710,7 +711,12 @@ describe('gcloud-guard', () => {
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
     const texts = await textsOf(band)
     expect(texts[0]).toBe('☁ gcloud · project side-project-staging · account dev@example.com · config default · GKE my-cluster (us-central1)')
-    expect(has(texts, /^─+$/)).toBe(true)
+    // The line sits in its own rounded, dim frame; no rule; the engine's band is still drawn beneath
+    expect(has(texts, /^─+$/)).toBe(false)
+    const frames = (await band.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    expect(frames.length).toBe(1)
+    expect(frames[0]?.props?.borderDimColor).toBe(true)
+    expect(frames[0]?.props?.borderColor).toBe(undefined)
     expect(has(texts, /ENGINE_DEFAULT/)).toBe(true)
     await band.unmount()
     expect(await cmd($, 'gcloud-guard')).toContain('project         side-project-staging  (from the configuration file)')
@@ -801,5 +807,46 @@ describe('gcloud-guard', () => {
     await ui.unmount()
     await w.clock.advance(300)
     await call
+  })
+
+  // The context line's frame: a rounded box, dim normally and yellow when the GKE context's project differs from gcloud's.
+  async function frames($: any): Promise<{ boxes: any[]; texts: string[] }> {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const boxes = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    const texts = await textsOf(ui)
+    await ui.unmount()
+    return { boxes, texts }
+  }
+
+  test('band_style=box: the frame turns yellow when the GKE context points at another project', async ($, on) => {
+    const files = defaultFiles()
+    files.set(KUBECONFIG, { text: 'current-context: gke_other-project_us-central1_my-cluster\n', mtimeMs: 100 })
+    const w = world(on, { files })
+    await start($, w)
+    const f = await frames($)
+    expect(f.texts[0]).toContain('GKE my-cluster (us-central1)')
+    expect(f.boxes.length).toBe(1)
+    expect(f.boxes[0]?.props?.borderColor).toBe('yellow')
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(undefined)
+    expect(kubeProjectMismatch(null)).toBe(false)
+  })
+
+  test('band_style=rule draws the thin line beneath when a plugin is below', { options: { band_style: 'rule' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=plain draws neither frame nor rule', { options: { band_style: 'plain' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(f.texts[0]).toContain('☁ gcloud · project side-project-staging')
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
   })
 })

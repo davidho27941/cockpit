@@ -489,3 +489,14 @@ export function addUsage(a: AgentRow, u: Usage | null | undefined): AgentRow {
     cacheWrite: a.cacheWrite + (u.cache_creation_input_tokens || 0),
   }
 }
+
+
+// ── Band framing ───────────────────────────────────────────────────────────
+
+/** How the mod's line above the prompt is framed: a rounded box, a thin rule beneath, or bare text. */
+export type BandStyle = 'box' | 'rule' | 'plain'
+
+/** The `band_style` option; anything but `rule` or `plain` is the default box. */
+export function parseBandStyle(v: unknown): BandStyle {
+  return v === 'rule' || v === 'plain' ? v : 'box'
+}

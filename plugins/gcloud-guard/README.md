@@ -51,7 +51,7 @@ Never held: `describe`, `list`, `get`, `get-iam-policy`, `get-value`, `get-crede
 
 ## Context line
 
-At all times, not only while holding, a dim line above the prompt says which project the session is pointed at, so a `gcloud … delete` is never a surprise about *where*:
+At all times, not only while holding, a dim line above the prompt, in its own rounded frame, says which project the session is pointed at, so a `gcloud … delete` is never a surprise about *where*:
 
 ```
 ☁ gcloud · project side-project-staging · account dev@example.com · config default · GKE my-cluster (us-central1)
@@ -93,12 +93,13 @@ It works as soon as it is installed. The only command is `/gcloud-guard` (above)
 | `describe_timeout_seconds` | `15` | How long each read-only lookup may take before it is reported as failed (3 to 60). |
 | `show_context` | `true` | Draw the context line above the prompt. |
 | `show_other_contexts` | `false` | Also show the current kubectl context when it is not a GKE cluster. |
+| `band_style` | `box` | How the context line is framed: `box` (its own rounded frame, dim normally and yellow when the GKE context belongs to a project other than gcloud's), `rule` (a thin line beneath it), `plain` (text only). The hold report always draws its own box. |
 
 Set them with `/plugin configure gcloud-guard@cockpit`, or `--config hold=destructive` at install. Command words in the pane (`delete`, `compute instances`, …) are never translated. Every refusal ends with the same English line, `(gcloud-guard: the user did not approve this command; do not retry unless asked.)`, so Claude reads a Japanese or Chinese refusal as a refusal, not as a transient error.
 
 ## Beside the other mods in this repo
 
-- Its context line stacks above the lines of opsx-board, auto-handover and cache-keeper with a thin rule between, like theirs. While it holds a command and the pane cannot be placed, the hold report takes over the band; the other lines return once you answer.
+- Its context line sits in its own rounded frame, stacked above the frames of opsx-board, auto-handover, cache-keeper and secret-guard (each mod frames its own line; `band_style` switches to a rule or plain text). While it holds a command and the pane cannot be placed, the hold report takes over the band; the other frames return once you answer.
 - blast-radius and gcloud-guard can both be installed: each watches its own commands. A line such as `gcloud compute instances delete x && rm -rf build` is held by both, one after the other.
 
 ## Safety boundary

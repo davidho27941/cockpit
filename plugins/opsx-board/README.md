@@ -101,6 +101,7 @@ In `/plugin`'s configure page or under `pluginConfigs` in `~/.claude/settings.js
 | `strict` | `false` | Refuse an Edit/Write that ticks several tasks at once |
 | `inject_instructions` | `true` | Add the reporting rule to the apply skill and the apply-phase system prompt |
 | `auto_open` | `true` | Open the pane when apply starts or the first sub agent spawns |
+| `band_style` | `box` | How the band line is framed: `box` (its own rounded frame, stacked above the other mods' frames), `rule` (a thin line beneath it), `plain` (text only) |
 
 ## Safety boundary
 

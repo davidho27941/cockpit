@@ -180,13 +180,15 @@ describe('logic', () => {
     expect(d.language).toBe('auto')
     expect(readSettings({ threshold: 200 }).threshold).toBe(95)
     expect(readSettings({ threshold: 5 }).threshold).toBe(40)
-    expect(readSettings({ threshold: '60', cooldown_minutes: '0', resume_hours: 0, inject_after_compact: false, language: 'ja' })).toEqual({
+    expect(d.bandStyle).toBe('box')
+    expect(readSettings({ threshold: '60', cooldown_minutes: '0', resume_hours: 0, inject_after_compact: false, language: 'ja', band_style: 'plain' })).toEqual({
       threshold: 60,
       dir: '~/.claude/handovers',
       cooldownMs: 0,
       resumeMs: 0,
       injectAfterCompact: false,
       language: 'ja',
+      bandStyle: 'plain',
     })
     expect(readSettings({ threshold: 'abc' }).threshold).toBe(75)
   })
@@ -541,6 +543,59 @@ describe('auto-handover', () => {
     expect(w.writes).toEqual([])
     expect(w.compactCalls.length).toBe(0)
     expect(has(await bandTexts($), /outside your home directory/)).toBe(true)
+  })
+
+  // The band's frame: a rounded box, dim normally and yellow while the line is a warning.
+  async function frames($: any): Promise<{ boxes: any[]; texts: string[] }> {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const boxes = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    const found = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    return { boxes, texts: found.map((x: any) => String(x.text ?? '')) }
+  }
+
+  test('band_style=box (default): dim frame near the threshold, yellow frame on a warning, no rule', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await measure($, w, 70)
+    let f = await frames($)
+    expect(f.boxes.length).toBe(1)
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(true)
+    expect(f.boxes[0]?.props?.borderColor).toBe(undefined)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+    void w
+  })
+
+  test('band_style=box: the frame is yellow while the band line is a warning', { options: { handover_dir: '/tmp/handovers' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const f = await frames($)
+    expect(has(f.texts, /outside your home directory/)).toBe(true)
+    expect(f.boxes.length).toBe(1)
+    expect(f.boxes[0]?.props?.borderColor).toBe('yellow')
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(undefined)
+  })
+
+  test('band_style=rule and plain', { options: { band_style: 'rule' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await measure($, w, 70)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=plain draws neither frame nor rule', { options: { band_style: 'plain' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await measure($, w, 70)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /⟲ context 70%/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
   })
 
   test('non-interactive (-p) session: no automatic handover', async ($, on) => {

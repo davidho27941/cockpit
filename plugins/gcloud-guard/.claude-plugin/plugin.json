@@ -2,7 +2,10 @@
   "name": "gcloud-guard",
   "version": "0.1.0",
   "description": "Holds gcloud and gsutil commands that would create, change or delete cloud resources, shows the account, project, location and the current state of the targets, and asks you to Proceed or Cancel.",
-  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "author": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "language": {
@@ -10,14 +13,23 @@
       "title": "Language",
       "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
       "default": "auto",
-      "options": ["auto", "en", "zh-TW", "ja"]
+      "options": [
+        "auto",
+        "en",
+        "zh-TW",
+        "ja"
+      ]
     },
     "hold": {
       "type": "string",
       "title": "What to hold",
       "description": "destructive: delete-class commands only; mutating: delete and update-class; all: also create-class",
       "default": "all",
-      "options": ["all", "mutating", "destructive"]
+      "options": [
+        "all",
+        "mutating",
+        "destructive"
+      ]
     },
     "include_gsutil": {
       "type": "boolean",
@@ -48,6 +60,17 @@
       "title": "Describe timeout (seconds)",
       "description": "How long each read-only lookup (config get-value, describe, ls) may take before it is reported as failed; 3 to 60",
       "default": 15
+    },
+    "band_style": {
+      "type": "string",
+      "title": "Band style",
+      "description": "How this mod's line above the prompt is framed: box (a rounded frame), rule (a thin line beneath), plain (text only)",
+      "default": "box",
+      "options": [
+        "box",
+        "rule",
+        "plain"
+      ]
     }
   }
 }

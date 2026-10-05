@@ -2,7 +2,10 @@
   "name": "opsx-board",
   "version": "0.1.0",
   "description": "OpenSpec board: which phase you are in (propose/apply/archive), which tasks.md task is current, and every sub agent's name, model/effort, tokens and progress",
-  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "author": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "language": {
@@ -10,7 +13,12 @@
       "title": "Language",
       "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja",
       "default": "auto",
-      "options": ["auto", "en", "zh-TW", "ja"]
+      "options": [
+        "auto",
+        "en",
+        "zh-TW",
+        "ja"
+      ]
     },
     "strict": {
       "type": "boolean",
@@ -29,6 +37,17 @@
       "title": "Auto-open pane",
       "description": "Open the pane when the apply phase starts or the first sub agent spawns (drawn only in a terminal at least 144 columns wide).",
       "default": true
+    },
+    "band_style": {
+      "type": "string",
+      "title": "Band style",
+      "description": "How this mod's line above the prompt is framed: box (a rounded frame), rule (a thin line beneath), plain (text only)",
+      "default": "box",
+      "options": [
+        "box",
+        "rule",
+        "plain"
+      ]
     }
   }
 }

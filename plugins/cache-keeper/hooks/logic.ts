@@ -48,6 +48,8 @@ export type KeeperConfig = {
   showBand: boolean
   /** The raw `language` option; resolved against the environment at session.start */
   language: unknown
+  /** How the band line is framed (`band_style`) */
+  bandStyle: BandStyle
 }
 
 function num(v: unknown, fallback: number): number {
@@ -77,6 +79,7 @@ export function parseConfig(options: Readonly<Record<string, unknown>> | undefin
     idleCapMs: Math.round(capHours * 3_600_000),
     showBand: bool(o.show_band, true),
     language: o.language,
+    bandStyle: parseBandStyle(o.band_style),
   }
 }
 
@@ -175,4 +178,15 @@ export function pokeText(u: UsageLike, lang: Lang): string {
   return isCacheMiss(u)
     ? t(lang, 'poke.miss', { tok: fmtTokens(u.cache_creation_input_tokens + u.input_tokens) })
     : t(lang, 'poke.hit', { hit: fmtTokens(u.cache_read_input_tokens), miss: fmtTokens(u.input_tokens + u.cache_creation_input_tokens) })
+}
+
+
+// ── Band framing ───────────────────────────────────────────────────────────
+
+/** How the mod's line above the prompt is framed: a rounded box, a thin rule beneath, or bare text. */
+export type BandStyle = 'box' | 'rule' | 'plain'
+
+/** The `band_style` option; anything but `rule` or `plain` is the default box. */
+export function parseBandStyle(v: unknown): BandStyle {
+  return v === 'rule' || v === 'plain' ? v : 'box'
 }

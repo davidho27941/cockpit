@@ -2,7 +2,10 @@
   "name": "secret-guard",
   "version": "0.1.0",
   "description": "Keeps API keys, cloud credentials and other secrets out of what is sent to the model: every text that enters the conversation is scanned and each match is replaced with a meaningful placeholder such as <google api key>.",
-  "author": { "name": "davidho27941", "url": "https://github.com/davidho27941" },
+  "author": {
+    "name": "davidho27941",
+    "url": "https://github.com/davidho27941"
+  },
   "types": "./types/index.d.ts",
   "userConfig": {
     "language": {
@@ -10,7 +13,12 @@
       "title": "Language",
       "description": "UI language: auto (from LC_ALL / LC_MESSAGES / LANG), en, zh-TW or ja. Placeholders stay English in every language.",
       "default": "auto",
-      "options": ["auto", "en", "zh-TW", "ja"]
+      "options": [
+        "auto",
+        "en",
+        "zh-TW",
+        "ja"
+      ]
     },
     "enabled": {
       "type": "boolean",
@@ -47,6 +55,17 @@
       "title": "Scan tool results",
       "description": "Off: only your own prompts, slash-command rows and the context blocks are scanned; file contents, command output and other tool results pass through",
       "default": true
+    },
+    "band_style": {
+      "type": "string",
+      "title": "Band style",
+      "description": "How this mod's line above the prompt is framed: box (a rounded frame), rule (a thin line beneath), plain (text only)",
+      "default": "box",
+      "options": [
+        "box",
+        "rule",
+        "plain"
+      ]
     }
   }
 }

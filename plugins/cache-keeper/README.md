@@ -30,8 +30,9 @@ Change them on the `/plugin` settings page or under `pluginConfigs` in `~/.claud
 | `interval_minutes` | `50` | How long the session may idle before a poke. The cache lapses after an hour, so this must be under 60; the mod clamps it to 5–59, leaving ten minutes for clock drift and API latency |
 | `max_idle_hours` | `4` | Stop warming once this long has passed since the last real turn. `0` means never stop (see the cost section) |
 | `enabled` | `true` | Off means the mod sends nothing at all |
-| `show_band` | `true` | Draw the countdown line above the prompt |
+| `show_band` | `true` | Draw the countdown line above the prompt, in its own rounded frame stacked with the other mods' frames |
 | `language` | `auto` | UI language: `auto` reads `LC_ALL`, `LC_MESSAGES`, then `LANG` (`zh*` → Traditional Chinese, `ja*` → Japanese, anything else → English); or set `en`, `zh-TW` or `ja` explicitly |
+| `band_style` | `box` | How the line is framed: `box` (a rounded frame, dim normally and yellow while backing off after failed pokes), `rule` (a thin line beneath it), `plain` (text only) |
 
 ## How it works, and what it costs
 

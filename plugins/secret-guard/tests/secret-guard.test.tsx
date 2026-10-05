@@ -591,4 +591,51 @@ describe('secret-guard', () => {
     const out: any = await $.prompt.submit({ text: 'see ACME-1234', origin: { kind: 'composer' }, wait: false } as any)
     expect(out.text).toBe('see <acme>')
   })
+
+  // The band's frame: a rounded box, dim normally and yellow while paused or when a custom pattern is invalid.
+  const has = (lines: string[], re: RegExp) => lines.some(l => re.test(l))
+  async function frames($: any): Promise<{ boxes: any[]; texts: string[] }> {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const boxes = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round')
+    const found = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    return { boxes, texts: found.map((x: any) => String(x.text ?? '')) }
+  }
+
+  test('band_style=box (default): dim frame after a redaction, yellow while paused, no rule', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await $.prompt.submit({ text: `a=${AKIA}`, origin: { kind: 'composer' }, wait: false } as any)
+    let f = await frames($)
+    expect(f.boxes.length).toBe(1)
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(true)
+    expect(f.boxes[0]?.props?.borderColor).toBe(undefined)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+    await command($, 'off')
+    f = await frames($)
+    expect(f.boxes[0]?.props?.borderColor).toBe('yellow')
+    expect(f.boxes[0]?.props?.borderDimColor).toBe(undefined)
+  })
+
+  test('band_style=rule draws the thin line beneath when a plugin is below', { options: { band_style: 'rule' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await $.prompt.submit({ text: `a=${AKIA}`, origin: { kind: 'composer' }, wait: false } as any)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('band_style=plain draws neither frame nor rule', { options: { band_style: 'plain' } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await $.prompt.submit({ text: `a=${AKIA}`, origin: { kind: 'composer' }, wait: false } as any)
+    const f = await frames($)
+    expect(f.boxes.length).toBe(0)
+    expect(has(f.texts, /^─+$/)).toBe(false)
+    expect(has(f.texts, /🛡 secret-guard · 1 redacted/)).toBe(true)
+    expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
 })

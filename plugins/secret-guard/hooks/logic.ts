@@ -23,6 +23,8 @@ export type Settings = {
   badPatterns: string[]
   allowPatterns: RegExp[]
   scanToolResults: boolean
+  /** How the band line is framed (`band_style`) */
+  bandStyle: BandStyle
 }
 
 function bool(v: unknown, fallback: boolean): boolean {
@@ -93,6 +95,7 @@ export function readSettings(options: Readonly<Record<string, unknown>> | undefi
     badPatterns: custom.bad,
     allowPatterns: parseAllowPatterns(typeof o.allow_patterns === 'string' ? o.allow_patterns : ''),
     scanToolResults: bool(o.scan_tool_results, true),
+    bandStyle: parseBandStyle(o.band_style),
   }
 }
 
@@ -518,4 +521,15 @@ export function addByLabel(byLabel: Readonly<Record<string, number>>, hits: read
   const out = { ...byLabel }
   for (const h of hits) out[h.label] = (out[h.label] ?? 0) + h.count
   return out
+}
+
+
+// ── Band framing ───────────────────────────────────────────────────────────
+
+/** How the mod's line above the prompt is framed: a rounded box, a thin rule beneath, or bare text. */
+export type BandStyle = 'box' | 'rule' | 'plain'
+
+/** The `band_style` option; anything but `rule` or `plain` is the default box. */
+export function parseBandStyle(v: unknown): BandStyle {
+  return v === 'rule' || v === 'plain' ? v : 'box'
 }

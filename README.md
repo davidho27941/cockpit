@@ -17,7 +17,7 @@ Every mod's UI can be shown in English, Traditional Chinese or Japanese: set the
 | [`secret-guard`](plugins/secret-guard) | Scans every prompt, tool result and context block before it reaches the model and replaces API keys, cloud credentials, private keys, tokens and passwords with placeholders such as `<google api key>` or `<gcp service account private key>`. Shows what was redacted, never the value. | 0.1.0 |
 | [`blast-radius`](plugins/blast-radius) | Holds a risky shell command (`rm -rf`, `git reset --hard`, `git clean`, force push, migrations), measures what it would change, and asks you to Proceed or Cancel. Vendored from [anthropics/claude-code-playground](https://github.com/anthropics/claude-code-playground) under Apache-2.0, with a `language` option added. | 0.1.0 (upstream) |
 
-Each mod installs on its own. When several are installed, their lines above the prompt stack, separated by a thin rule; each pane has its own tab.
+Each mod installs on its own. When several are installed, each one draws its line above the prompt in its own rounded frame (switchable per mod to a thin rule or plain text with the `band_style` setting); each pane has its own tab.
 
 ## Install
 

@@ -21,7 +21,7 @@ import type { RecentHit } from '../types'
 import type { Lang } from './i18n'
 import { DEFAULT_LANG, resolveLang, t } from './i18n'
 import { addByLabel, bandText, planAppend, pushRecent, readSettings, redact, selfTestText, statusText, toastText } from './logic'
-import type { AppendRow, Hit, Settings } from './logic'
+import type { AppendRow, BandStyle, Hit, Settings } from './logic'
 
 const langState = atom({ plugin: 'secret-guard', key: 'lang' } as const, DEFAULT_LANG)
 const isPaused = atom({ plugin: 'secret-guard', key: 'isPaused' } as const, false)
@@ -184,21 +184,52 @@ export const register: Register = (on, options) => {
       badPatterns: await read($, badPatterns),
     })
     if (text === null) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    // AbovePrompt is a hook chain: draw our line first, then what the plugins beneath drew
+    const ui = $.ui.resolve(e)
+    const { Text } = ui
+    // AbovePrompt is a hook chain: draw our line in its frame, then what the plugins beneath drew
     const below = await next(e)
-    // A thin rule between our line and the band of the plugin beneath; none when the engine drew nothing of its own
-    const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
-    const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
     const paused = await read($, isPaused)
-    return (
-      <Box flexDirection="column">
-        <Text wrap="truncate-end" dimColor={!paused} color={paused ? 'yellow' : undefined}>
-          {text}
-        </Text>
-        {rule}
-        {below}
-      </Box>
+    const isWarning = paused || (await read($, badPatterns)).length > 0
+    return frameBand(
+      ui,
+      settings.bandStyle,
+      isWarning,
+      e.props.bodyColumns,
+      <Text wrap="truncate-end" dimColor={!paused} color={paused ? 'yellow' : undefined}>
+        {text}
+      </Text>,
+      below,
     )
   })
+}
+
+/**
+ * Frames this mod's band content per `band_style` and stacks the plugins beneath under it.
+ * `box`: a rounded frame (yellow when `isWarning`, here while paused or when a custom pattern did not compile);
+ * `rule`: a dim line beneath, only when another plugin drew something below; `plain`: the bare text.
+ */
+function frameBand(ui: { Box: any; Text: any }, style: BandStyle, isWarning: boolean, bodyColumns: number | undefined, content: any, below: any) {
+  const { Box, Text } = ui
+  const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
+  const own =
+    style === 'box' ? (
+      <Box key="frame" flexDirection="column" borderStyle="round" borderDimColor={isWarning ? undefined : true} borderColor={isWarning ? 'yellow' : undefined} paddingX={1}>
+        {content}
+      </Box>
+    ) : style === 'rule' ? (
+      <Box key="frame" flexDirection="column">
+        {content}
+        {hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(bodyColumns ?? 60, 200)))}</Text> : null}
+      </Box>
+    ) : (
+      <Box key="frame" flexDirection="column">
+        {content}
+      </Box>
+    )
+  return (
+    <Box flexDirection="column">
+      {own}
+      {below}
+    </Box>
+  )
 }

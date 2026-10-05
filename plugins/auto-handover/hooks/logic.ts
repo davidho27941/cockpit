@@ -34,6 +34,8 @@ export type Settings = {
   injectAfterCompact: boolean
   /** The `language` option as given (`auto` or a Lang); resolved at session.start. */
   language: string
+  /** How the band line is framed (`band_style`). */
+  bandStyle: BandStyle
 }
 
 function num(v: unknown, fallback: number): number {
@@ -50,7 +52,7 @@ export function readSettings(options: Readonly<Record<string, unknown>> | undefi
   const resumeHours = Math.max(0, num(o.resume_hours, DEFAULT_RESUME_HOURS))
   const inject = o.inject_after_compact === undefined ? true : o.inject_after_compact === true || o.inject_after_compact === 'true'
   const language = typeof o.language === 'string' && o.language.trim() ? o.language.trim() : 'auto'
-  return { threshold, dir: dirRaw, cooldownMs: cooldownMin * 60_000, resumeMs: resumeHours * 3_600_000, injectAfterCompact: inject, language }
+  return { threshold, dir: dirRaw, cooldownMs: cooldownMin * 60_000, resumeMs: resumeHours * 3_600_000, injectAfterCompact: inject, language, bandStyle: parseBandStyle(o.band_style) }
 }
 
 // ── Folder and paths ─────────────────────────────────────────────────────────
@@ -275,4 +277,15 @@ export function statusText(f: BandFacts & { gate: string | null; dirDisplay: str
   )
   lines.push(t(lang, 'status.count', { count: f.count }))
   return lines.join('\n')
+}
+
+
+// ── Band framing ───────────────────────────────────────────────────────────
+
+/** How the mod's line above the prompt is framed: a rounded box, a thin rule beneath, or bare text. */
+export type BandStyle = 'box' | 'rule' | 'plain'
+
+/** The `band_style` option; anything but `rule` or `plain` is the default box. */
+export function parseBandStyle(v: unknown): BandStyle {
+  return v === 'rule' || v === 'plain' ? v : 'box'
 }

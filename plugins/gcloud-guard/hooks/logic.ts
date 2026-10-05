@@ -34,6 +34,8 @@ export type Settings = {
   describeTimeoutMs: number
   showContext: boolean
   showOtherContexts: boolean
+  /** How the context line is framed (`band_style`); the hold report draws its own box. */
+  bandStyle: BandStyle
 }
 
 function num(v: unknown, fallback: number): number {
@@ -60,7 +62,14 @@ export function readSettings(options: Readonly<Record<string, unknown>> | undefi
     describeTimeoutMs: Math.round(seconds * 1000),
     showContext: bool(o.show_context, true),
     showOtherContexts: bool(o.show_other_contexts, false),
+    bandStyle: parseBandStyle(o.band_style),
   }
+}
+
+/** True when the current GKE context points at a project other than the one gcloud is set to. */
+export function kubeProjectMismatch(ctx: GcloudContext | null): boolean {
+  if (!ctx || !ctx.project || ctx.kube?.kind !== 'gke') return false
+  return !!ctx.kube.project && ctx.kube.project !== ctx.project
 }
 
 /** Whether a risk of this severity is held under the configured level. */
@@ -786,4 +795,15 @@ export function contextText(lang: Lang, ctx: GcloudContext | null, settings: Set
 /** Bash commands after which the context may have changed: config, credentials, kube context switches. */
 export function touchesContext(command: string): boolean {
   return /gcloud\s+(?:alpha\s+|beta\s+)?(?:config\b|auth\b|container\s+clusters\s+get-credentials)|kubectl\s+config\s+(?:use-context|set-context|set-cluster|unset)|\bkubectx\b/.test(command)
+}
+
+
+// ── Band framing ───────────────────────────────────────────────────────────
+
+/** How the mod's line above the prompt is framed: a rounded box, a thin rule beneath, or bare text. */
+export type BandStyle = 'box' | 'rule' | 'plain'
+
+/** The `band_style` option; anything but `rule` or `plain` is the default box. */
+export function parseBandStyle(v: unknown): BandStyle {
+  return v === 'rule' || v === 'plain' ? v : 'box'
 }

@@ -49,11 +49,12 @@ import {
   severityLabel,
   splitKubeconfigList,
   storageUrls,
+  kubeProjectMismatch,
   summarizeDescribe,
   touchesContext,
   truncate,
 } from './logic'
-import type { ContextEnv, Settings } from './logic'
+import type { BandStyle, ContextEnv, Settings } from './logic'
 
 const langState = atom({ plugin: 'gcloud-guard', key: 'lang' } as const, DEFAULT_LANG)
 const heldState = atom({ plugin: 'gcloud-guard', key: 'held' } as const, null)
@@ -625,21 +626,53 @@ export const register: Register = (on, options) => {
       return draw($, e, view, e.props.bodyColumns ?? 80, snap?.kube ?? null)
     }
     if (e.props.hasSurvey || !settings.showContext || (await read($, isBandHidden))) return next(e)
-    const text = contextLine(lang, (await read($, contextState)) as GcloudContext | null, settings)
+    const ctx = (await read($, contextState)) as GcloudContext | null
+    const text = contextLine(lang, ctx, settings)
     if (text === null) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    // AbovePrompt is a chain: draw our line, then whatever the plugins beneath drew, with a rule between
+    const ui = $.ui.resolve(e)
+    const { Text } = ui
+    // AbovePrompt is a chain: draw our line in its frame, then whatever the plugins beneath drew
     const below = await next(e)
-    const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
-    const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
-    return (
-      <Box flexDirection="column">
-        <Text wrap="truncate-end" dimColor>
-          {text}
-        </Text>
-        {rule}
-        {below}
-      </Box>
+    return frameBand(
+      ui,
+      settings.bandStyle,
+      kubeProjectMismatch(ctx),
+      e.props.bodyColumns,
+      <Text wrap="truncate-end" dimColor>
+        {text}
+      </Text>,
+      below,
     )
   })
+}
+
+/**
+ * Frames the context line per `band_style` and stacks the plugins beneath under it.
+ * `box`: a rounded frame (yellow when `isWarning`, here when the GKE context's project differs from
+ * gcloud's); `rule`: a dim line beneath, only when another plugin drew something below; `plain`: bare text.
+ */
+function frameBand(ui: { Box: any; Text: any }, style: BandStyle, isWarning: boolean, bodyColumns: number | undefined, content: any, below: any) {
+  const { Box, Text } = ui
+  const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
+  const own =
+    style === 'box' ? (
+      <Box key="frame" flexDirection="column" borderStyle="round" borderDimColor={isWarning ? undefined : true} borderColor={isWarning ? 'yellow' : undefined} paddingX={1}>
+        {content}
+      </Box>
+    ) : style === 'rule' ? (
+      <Box key="frame" flexDirection="column">
+        {content}
+        {hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(bodyColumns ?? 60, 200)))}</Text> : null}
+      </Box>
+    ) : (
+      <Box key="frame" flexDirection="column">
+        {content}
+      </Box>
+    )
+  return (
+    <Box flexDirection="column">
+      {own}
+      {below}
+    </Box>
+  )
 }
