@@ -31,6 +31,18 @@
       "description": "Changing the active project or account silently changes what later commands hit, so it is held too",
       "default": true
     },
+    "show_context": {
+      "type": "boolean",
+      "title": "Show the context line",
+      "description": "A dim line above the prompt with the gcloud project, account, configuration and the current GKE cluster, read from the config files",
+      "default": true
+    },
+    "show_other_contexts": {
+      "type": "boolean",
+      "title": "Show non-GKE kubectl contexts",
+      "description": "Also show the current kubectl context when it is not a GKE cluster (docker-desktop, EKS, ...)",
+      "default": false
+    },
     "describe_timeout_seconds": {
       "type": "number",
       "title": "Describe timeout (seconds)",

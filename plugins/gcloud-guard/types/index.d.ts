@@ -74,11 +74,33 @@ export type HeldView = {
   where: 'pane' | 'band'
 }
 
+/** The current kubectl context, parsed: a GKE one carries its project, location and cluster. */
+export type KubeContext = { kind: 'gke'; name: string; project: string; location: string; cluster: string } | { kind: 'other'; name: string }
+
+/** What the session is pointed at, read from the gcloud and kube config files (no process). */
+export type GcloudContext = {
+  configDir: string | null
+  configuration: string | null
+  project: string | null
+  /** Where the project came from: the CLOUDSDK_CORE_PROJECT env var or the configuration file */
+  projectSource: 'env' | 'file' | null
+  account: string | null
+  zone: string | null
+  region: string | null
+  kubeconfig: string | null
+  kube: KubeContext | null
+  /** When the snapshot was taken, in $.clock.now() milliseconds */
+  readAt: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'gcloud-guard': {
       lang: GuardLang
       held: HeldView | null
+      context: GcloudContext | null
+      /** /gcloud-guard off hides the context line for the session */
+      isBandHidden: boolean
     }
   }
 }

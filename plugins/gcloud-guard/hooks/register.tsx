@@ -14,21 +14,27 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import type { HeldView, Report, ReportContext, Risk } from '../types'
+import type { GcloudContext, HeldView, Report, ReportContext, Risk } from '../types'
 import { DEFAULT_LANG, resolveLang, t } from './i18n'
 import type { Lang } from './i18n'
 import {
+  CONTEXT_TICK_MS,
   HOLD_LIMIT_MS,
   MAX_LINES,
   MAX_TARGETS_DESCRIBED,
   PANE,
   POLL_SECONDS,
+  buildContext,
   classify,
   configGetArgv,
+  contextLine,
+  contextText,
   countObjects,
+  currentContextOf,
   denyText,
   describeArgv,
   emptyContext,
+  gcloudConfigDir,
   getIamPolicyArgv,
   headline,
   isHeld,
@@ -41,14 +47,18 @@ import {
   readSettings,
   servicesListArgv,
   severityLabel,
+  splitKubeconfigList,
   storageUrls,
   summarizeDescribe,
+  touchesContext,
   truncate,
 } from './logic'
-import type { Settings } from './logic'
+import type { ContextEnv, Settings } from './logic'
 
 const langState = atom({ plugin: 'gcloud-guard', key: 'lang' } as const, DEFAULT_LANG)
 const heldState = atom({ plugin: 'gcloud-guard', key: 'held' } as const, null)
+const contextState = atom({ plugin: 'gcloud-guard', key: 'context' } as const, null)
+const isBandHidden = atom({ plugin: 'gcloud-guard', key: 'isBandHidden' } as const, false)
 
 type Decision = 'proceed' | 'cancel' | 'timeout' | 'interrupted' | 'error'
 
@@ -60,6 +70,9 @@ let settings: Settings = readSettings(undefined)
 let lang: Lang = DEFAULT_LANG
 let held: Hold | null = null
 let holdSeq = 0
+/** The mtimes of the files the context line was last read from, keyed by path; the timer re-reads when one moved. */
+let watched: Record<string, number> = {}
+let refreshing = false
 
 type Run = { exitCode: number; stdout: string; stderr: string }
 
@@ -77,6 +90,107 @@ async function resolveLanguage($: any): Promise<Lang> {
     env.LANG = await $.env.get('LANG')
   } catch {}
   return resolveLang(settings.language, env)
+}
+
+// ── The context line: read from the config files, no process ───────────────
+
+async function contextEnv($: any): Promise<ContextEnv> {
+  const env: ContextEnv = {}
+  try {
+    env.CLOUDSDK_CONFIG = await $.env.get('CLOUDSDK_CONFIG')
+    env.HOME = await $.env.get('HOME')
+    env.CLOUDSDK_CORE_PROJECT = await $.env.get('CLOUDSDK_CORE_PROJECT')
+    env.CLOUDSDK_CORE_ACCOUNT = await $.env.get('CLOUDSDK_CORE_ACCOUNT')
+    env.CLOUDSDK_ACTIVE_CONFIG_NAME = await $.env.get('CLOUDSDK_ACTIVE_CONFIG_NAME')
+    env.CLOUDSDK_COMPUTE_ZONE = await $.env.get('CLOUDSDK_COMPUTE_ZONE')
+    env.CLOUDSDK_COMPUTE_REGION = await $.env.get('CLOUDSDK_COMPUTE_REGION')
+  } catch {}
+  return env
+}
+
+async function kubeconfigList($: any, home: string | null): Promise<string[]> {
+  let value: string | undefined
+  try {
+    value = await $.env.get('KUBECONFIG')
+  } catch {}
+  return splitKubeconfigList(value, home)
+}
+
+/** A file's text, or null when it is missing or unreadable. */
+async function readText($: any, path: string): Promise<string | null> {
+  try {
+    const text = await $.fs.read(path)
+    return typeof text === 'string' ? text : null
+  } catch {
+    return null
+  }
+}
+
+async function mtimeOf($: any, path: string): Promise<number> {
+  try {
+    const st = await $.fs.stat(path)
+    return Number(st?.mtimeMs ?? 0)
+  } catch {
+    return 0
+  }
+}
+
+/** Re-reads the gcloud and kube config files and writes the snapshot; remembers the files' mtimes for the timer. */
+async function refreshContext($: any): Promise<GcloudContext | null> {
+  if (refreshing) return null
+  refreshing = true
+  try {
+    const env = await contextEnv($)
+    const home = (env.HOME ?? '').trim() || null
+    const configDir = gcloudConfigDir(env)
+    const next: Record<string, number> = {}
+    let activeConfigText: string | null = null
+    let configText: string | null = null
+    if (configDir) {
+      const activePath = `${configDir}/active_config`
+      activeConfigText = await readText($, activePath)
+      next[activePath] = await mtimeOf($, activePath)
+      const name = (env.CLOUDSDK_ACTIVE_CONFIG_NAME ?? '').trim() || (activeConfigText ?? '').trim() || 'default'
+      const configPath = `${configDir}/configurations/config_${name}`
+      configText = await readText($, configPath)
+      next[configPath] = await mtimeOf($, configPath)
+    }
+    let kubeconfigPath: string | null = null
+    let kubeconfigText: string | null = null
+    for (const path of await kubeconfigList($, home)) {
+      const text = await readText($, path)
+      next[path] = await mtimeOf($, path)
+      if (text !== null && currentContextOf(text) !== null) {
+        kubeconfigPath = path
+        kubeconfigText = text
+        break
+      }
+      if (kubeconfigPath === null && text !== null) kubeconfigPath = path
+    }
+    watched = next
+    const snapshot = buildContext({ env, configDir, activeConfigText, configText, kubeconfigPath, kubeconfigText, now: await $.clock.now() })
+    const known = snapshot.project || snapshot.account || snapshot.kube
+    const value = known ? snapshot : null
+    await update($, contextState, () => value)
+    return value
+  } catch {
+    return null
+  } finally {
+    refreshing = false
+  }
+}
+
+/** The timer: re-read only when one of the watched files moved. */
+async function onContextTick($: any): Promise<void> {
+  if (refreshing) return
+  for (const [path, mtime] of Object.entries(watched)) {
+    if ((await mtimeOf($, path)) !== mtime) {
+      await refreshContext($)
+      return
+    }
+  }
+  // Nothing watched yet (no config dir found at start): look again for the files
+  if (!Object.keys(watched).length) await refreshContext($)
 }
 
 /** Runs a read-only lookup; never throws. `null` when the process could not start (gcloud missing). */
@@ -253,7 +367,7 @@ function severityColor(severity: Risk['severity']): string {
   return severity === 'destructive' ? 'red' : severity === 'mutating' ? 'yellow' : 'green'
 }
 
-function draw($: any, e: any, view: HeldView, columns: number) {
+function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContext['kube'] | null) {
   const { Box, Text, Button } = $.ui.resolve(e)
   const L = lang
   const risk = view.risk
@@ -305,6 +419,15 @@ function draw($: any, e: any, view: HeldView, columns: number) {
       {ctx.track !== 'ga' ? <Text color="magenta">{`  · ${t(L, 'label.track')} ${ctx.track}`}</Text> : null}
     </Text>,
   )
+  if (gke && gke.kind === 'gke') {
+    rows.push(
+      <Text key="gke" wrap="truncate-end">
+        <Text dimColor>{`${t(L, 'label.gke')}  `}</Text>
+        <Text>{`${gke.cluster} (${gke.location})`}</Text>
+        {gke.project && ctx.project && gke.project !== ctx.project ? <Text color="yellow">{`  ≠ ${t(L, 'label.project').toLowerCase()} ${gke.project}`}</Text> : null}
+      </Text>,
+    )
+  }
   if (ctx.quiet) {
     rows.push(
       <Text key="quiet" color="yellow">
@@ -382,7 +505,8 @@ async function holdCommand($: any, e: any, next: any, risk: Risk): Promise<any> 
     mine.view = { ...mine.view, report }
     await update($, heldState, () => mine.view)
     try {
-      opened = await $.ui.open({ id: PANE, title: `gcloud-guard · ${severityLabel(lang, risk.severity)}`, focus: true, rows: paneRows(report) })
+      const snap = (await read($, contextState)) as GcloudContext | null
+      opened = await $.ui.open({ id: PANE, title: `gcloud-guard · ${severityLabel(lang, risk.severity)}`, focus: true, rows: paneRows(report, snap?.kube?.kind === 'gke') })
     } catch {
       opened = { isPlaced: false }
     }
@@ -423,7 +547,10 @@ async function holdCommand($: any, e: any, next: any, risk: Risk): Promise<any> 
   const decision = mine.decision ?? 'error'
   if (decision === 'proceed') {
     toast($, t(lang, 'toast.proceed'))
-    return next(e)
+    const ran = await next(e)
+    // A proceeded gcloud / gsutil command may have changed the project, account or kube context
+    await refreshContext($)
+    return ran
   }
   const why = decision === 'cancel' ? 'cancel' : decision === 'timeout' ? 'timeout' : decision === 'interrupted' ? 'interrupted' : 'error'
   return { deny: denyText(lang, why, report?.headline ?? headline(lang, risk), report?.context.project ?? risk.flags.project ?? null) }
@@ -440,27 +567,79 @@ export const register: Register = (on, options) => {
     await update($, langState, () => lang)
     // A hot reload mid-hold left a stale view behind: clear it
     await update($, heldState, () => null)
+    await $.command.register({ name: 'gcloud-guard', description: t(lang, 'cmd.description'), argumentHint: '[off|on|refresh]' })
+    await refreshContext($)
+    // Nobody looks at the band in `claude -p`: no timer there
+    if (e.isInteractive) {
+      $.clock.every(CONTEXT_TICK_MS, () => {
+        void onContextTick($).catch(() => {})
+      })
+    }
     return out
   })
 
+  on('command.run', { command: 'gcloud-guard' }, async ($, e) => {
+    const arg = String(e.args ?? '').trim()
+    if (arg === 'off') {
+      await update($, isBandHidden, () => true)
+      return { text: t(lang, 'cmd.off') }
+    }
+    if (arg === 'on') {
+      await update($, isBandHidden, () => false)
+      return { text: t(lang, 'cmd.on') }
+    }
+    if (arg === 'refresh') {
+      await refreshContext($)
+      return { text: `${t(lang, 'cmd.refreshed')}\n${contextText(lang, (await read($, contextState)) as GcloudContext | null, settings)}` }
+    }
+    if (arg !== '') return { text: t(lang, 'cmd.usage') }
+    return { text: contextText(lang, (await read($, contextState)) as GcloudContext | null, settings) }
+  })
+
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const risk = classify(String(e.command ?? ''), settings)
-    if (risk === null || !isHeld(risk, settings)) return next(e)
-    return holdCommand($, e, next, risk)
+    const command = String(e.command ?? '')
+    const risk = classify(command, settings)
+    if (risk !== null && isHeld(risk, settings)) return holdCommand($, e, next, risk)
+    if (!touchesContext(command)) return next(e)
+    // Not held, but it may change the project, account or kube context: re-read afterwards
+    const ran = await next(e)
+    await refreshContext($)
+    return ran
   })
 
   on('ui.render', { component: 'Pane', requestId: 'gcloud-guard' }, async ($, e, next) => {
     const view = (await read($, heldState)) as HeldView | null
     if (view === null) return next(e)
     await read($, langState)
-    return draw($, e, view, e.props.bodyColumns ?? 80)
+    const snap = (await read($, contextState)) as GcloudContext | null
+    return draw($, e, view, e.props.bodyColumns ?? 80, snap?.kube ?? null)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const view = (await read($, heldState)) as HeldView | null
-    if (view === null || view.where !== 'band') return next(e)
     await read($, langState)
-    // The report takes the whole band while the command is held: the buttons must be on top
-    return draw($, e, view, e.props.bodyColumns ?? 80)
+    if (view !== null) {
+      if (view.where !== 'band') return next(e)
+      // The report takes the whole band while the command is held: the buttons must be on top
+      const snap = (await read($, contextState)) as GcloudContext | null
+      return draw($, e, view, e.props.bodyColumns ?? 80, snap?.kube ?? null)
+    }
+    if (e.props.hasSurvey || !settings.showContext || (await read($, isBandHidden))) return next(e)
+    const text = contextLine(lang, (await read($, contextState)) as GcloudContext | null, settings)
+    if (text === null) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    // AbovePrompt is a chain: draw our line, then whatever the plugins beneath drew, with a rule between
+    const below = await next(e)
+    const hasBelow = below !== null && below !== undefined && (below as { type?: string }).type !== 'engine'
+    const rule = hasBelow ? <Text key="rule" dimColor>{'─'.repeat(Math.max(8, Math.min(e.props.bodyColumns ?? 60, 200)))}</Text> : null
+    return (
+      <Box flexDirection="column">
+        <Text wrap="truncate-end" dimColor>
+          {text}
+        </Text>
+        {rule}
+        {below}
+      </Box>
+    )
   })
 }

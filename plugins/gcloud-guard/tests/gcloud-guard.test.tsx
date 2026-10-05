@@ -8,9 +8,14 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_LANG, DENY_TAIL, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
+  CONTEXT_TICK_MS,
   HOLD_LIMIT_MS,
+  buildContext,
   classify,
+  contextLine,
+  contextText,
   countObjects,
+  currentContextOf,
   denyText,
   describeArgv,
   headline,
@@ -19,11 +24,15 @@ import {
   keyFlagsLine,
   listObjectsArgv,
   parseGcloudArgs,
+  parseGcloudIni,
+  parseKubeContext,
   readSettings,
+  splitKubeconfigList,
   splitSegments,
   stripWrappers,
   summarizeDescribe,
   tokenize,
+  touchesContext,
 } from '../hooks/logic'
 import type { Risk } from '../types'
 
@@ -286,6 +295,68 @@ describe('lookups and text', () => {
   })
 })
 
+describe('context files', () => {
+  test('parseGcloudIni reads sections, skips comments, keys are section/key', async () => {
+    const ini = parseGcloudIni('# gcloud config\n[core]\naccount = a@b.c\nproject=demo\n; comment\n\n[compute]\nzone = us-central1-a\nbare_key = 1\n[container]\ncluster = c1\n')
+    expect(ini).toEqual({ 'core/account': 'a@b.c', 'core/project': 'demo', 'compute/zone': 'us-central1-a', 'compute/bare_key': '1', 'container/cluster': 'c1' })
+    expect(parseGcloudIni('')).toEqual({})
+  })
+
+  test('parseKubeContext: GKE names split into project, location and cluster; others stay other', async () => {
+    expect(parseKubeContext('gke_side-project-staging_us-central1_my-cluster')).toEqual({ kind: 'gke', name: 'gke_side-project-staging_us-central1_my-cluster', project: 'side-project-staging', location: 'us-central1', cluster: 'my-cluster' })
+    expect(parseKubeContext('gke_p_us-central1-a_zonal')).toEqual({ kind: 'gke', name: 'gke_p_us-central1-a_zonal', project: 'p', location: 'us-central1-a', cluster: 'zonal' })
+    expect(parseKubeContext('docker-desktop')).toEqual({ kind: 'other', name: 'docker-desktop' })
+    expect(parseKubeContext('arn:aws:eks:us-east-1:123:cluster/my_cluster_x')).toEqual({ kind: 'other', name: 'arn:aws:eks:us-east-1:123:cluster/my_cluster_x' })
+    expect(parseKubeContext('gke_only-two')).toEqual({ kind: 'other', name: 'gke_only-two' })
+    expect(currentContextOf('kind: Config\ncurrent-context: "docker-desktop"\nusers: []\n')).toBe('docker-desktop')
+    expect(currentContextOf('kind: Config\n')).toBe(null)
+  })
+
+  test('env overrides win over the files; KUBECONFIG lists files', async () => {
+    const env = { HOME: '/home/u', CLOUDSDK_CORE_PROJECT: 'from-env', CLOUDSDK_ACTIVE_CONFIG_NAME: 'prod' }
+    const ctx = buildContext({ env, configDir: '/home/u/.config/gcloud', activeConfigText: 'default\n', configText: '[core]\nproject = from-file\naccount = a@b.c\n', kubeconfigPath: null, kubeconfigText: null, now: 5 })
+    expect(ctx.project).toBe('from-env')
+    expect(ctx.projectSource).toBe('env')
+    expect(ctx.configuration).toBe('prod')
+    expect(ctx.account).toBe('a@b.c')
+    expect(ctx.kube).toBe(null)
+    const fromFile = buildContext({ env: { HOME: '/home/u' }, configDir: '/home/u/.config/gcloud', activeConfigText: null, configText: '[core]\nproject = p\n', kubeconfigPath: null, kubeconfigText: null, now: 5 })
+    expect(fromFile.configuration).toBe('default')
+    expect(fromFile.projectSource).toBe('file')
+    expect(splitKubeconfigList('/a/one:/b/two', '/home/u')).toEqual(['/a/one', '/b/two'])
+    expect(splitKubeconfigList(undefined, '/home/u')).toEqual(['/home/u/.kube/config'])
+    expect(splitKubeconfigList('', null)).toEqual([])
+  })
+
+  test('contextLine in three languages, hidden when nothing is known, other contexts only on request', async () => {
+    const env = { HOME: '/home/u' }
+    const full = buildContext({ env, configDir: '/home/u/.config/gcloud', activeConfigText: 'default', configText: '[core]\nproject = side-project-staging\naccount = dev@example.com\n', kubeconfigPath: '/home/u/.kube/config', kubeconfigText: 'current-context: gke_side-project-staging_us-central1_my-cluster\n', now: 1 })
+    expect(contextLine('en', full, S)).toBe('☁ gcloud · project side-project-staging · account dev@example.com · config default · GKE my-cluster (us-central1)')
+    expect(contextLine('zh-TW', full, S)).toBe('☁ gcloud · 專案 side-project-staging · 帳號 dev@example.com · 設定檔 default · GKE my-cluster（us-central1）')
+    expect(contextLine('ja', full, S)).toBe('☁ gcloud · プロジェクト side-project-staging · アカウント dev@example.com · 構成 default · GKE my-cluster（us-central1）')
+    const fromEnv = buildContext({ env: { ...env, CLOUDSDK_CORE_PROJECT: 'p-env' }, configDir: '/home/u/.config/gcloud', activeConfigText: null, configText: null, kubeconfigPath: null, kubeconfigText: null, now: 1 })
+    expect(contextLine('en', fromEnv, S)).toBe('☁ gcloud · project p-env ← CLOUDSDK_CORE_PROJECT · config default')
+    const other = buildContext({ env, configDir: '/home/u/.config/gcloud', activeConfigText: null, configText: '[core]\nproject = p\n', kubeconfigPath: '/k', kubeconfigText: 'current-context: docker-desktop\n', now: 1 })
+    expect(contextLine('en', other, S)).toBe('☁ gcloud · project p · config default')
+    expect(contextLine('en', other, readSettings({ show_other_contexts: true }))).toBe('☁ gcloud · project p · config default · k8s docker-desktop')
+    const nothing = buildContext({ env, configDir: '/home/u/.config/gcloud', activeConfigText: null, configText: null, kubeconfigPath: null, kubeconfigText: null, now: 1 })
+    expect(contextLine('en', nothing, S)).toBe(null)
+    expect(contextLine('en', null, S)).toBe(null)
+    expect(contextText('en', full, S)).toContain('GKE             project side-project-staging · location us-central1 · cluster my-cluster')
+    expect(contextText('en', null, S)).toContain('no gcloud configuration found')
+  })
+
+  test('touchesContext spots config, auth and kube context switches', async () => {
+    expect(touchesContext('gcloud config set project x')).toBe(true)
+    expect(touchesContext('gcloud auth login')).toBe(true)
+    expect(touchesContext('gcloud container clusters get-credentials c --region r')).toBe(true)
+    expect(touchesContext('kubectl config use-context dev')).toBe(true)
+    expect(touchesContext('kubectx prod')).toBe(true)
+    expect(touchesContext('gcloud compute instances list')).toBe(false)
+    expect(touchesContext('kubectl get pods')).toBe(false)
+  })
+})
+
 describe('i18n', () => {
   test('resolveLang: option wins, then LC_ALL, LC_MESSAGES, LANG; C and POSIX are English', async () => {
     expect(resolveLang('ja', { LANG: 'zh_TW.UTF-8' })).toBe('ja')
@@ -312,6 +383,8 @@ describe('i18n', () => {
 const ROOT = '/home/u/proj'
 const INSTANCE = JSON.stringify({ name: 'web-1', status: 'RUNNING', zone: 'projects/p/zones/us-central1-a', machineType: 'zones/us-central1-a/machineTypes/e2-small', creationTimestamp: '2026-09-01T10:00:00Z', labels: { env: 'prod' }, disks: [{ autoDelete: true }] })
 
+type FakeFile = { text: string; mtimeMs: number }
+
 type World = {
   clock: ReturnType<typeof mock.clock>
   ran: string[]
@@ -322,12 +395,38 @@ type World = {
   isPlaced: boolean
   gcloudMissing: boolean
   sleepMs: number
+  /** The gcloud and kube config files the context line reads */
+  files: Map<string, FakeFile>
+  reads: string[]
 }
 
-function world(on: any, options: Partial<Pick<World, 'isPlaced' | 'gcloudMissing'>> = {}, env: Record<string, string> = { LANG: 'en_US.UTF-8' }): World {
-  const w: World = { clock: mock.clock(on, { now: 1_000_000 }), ran: [], lookups: [], toasts: [], opened: [], closed: [], isPlaced: true, gcloudMissing: false, sleepMs: 250, ...options }
+const HOME = '/home/u'
+const GCLOUD_DIR = `${HOME}/.config/gcloud`
+const KUBECONFIG = `${HOME}/.kube/config`
+
+/** A home with one active gcloud configuration and a GKE kube context. */
+function defaultFiles(): Map<string, FakeFile> {
+  return new Map<string, FakeFile>([
+    [`${GCLOUD_DIR}/active_config`, { text: 'default\n', mtimeMs: 100 }],
+    [`${GCLOUD_DIR}/configurations/config_default`, { text: '[core]\naccount = dev@example.com\nproject = side-project-staging\n\n[compute]\nzone = us-central1-a\nregion = us-central1\n', mtimeMs: 100 }],
+    [KUBECONFIG, { text: 'apiVersion: v1\nclusters: []\ncontexts: []\ncurrent-context: gke_side-project-staging_us-central1_my-cluster\nkind: Config\n', mtimeMs: 100 }],
+  ])
+}
+
+function world(on: any, options: Partial<Pick<World, 'isPlaced' | 'gcloudMissing' | 'files'>> = {}, env: Record<string, string> = { LANG: 'en_US.UTF-8', HOME }): World {
+  const w: World = { clock: mock.clock(on, { now: 1_000_000 }), ran: [], lookups: [], toasts: [], opened: [], closed: [], isPlaced: true, gcloudMissing: false, sleepMs: 250, files: defaultFiles(), reads: [], ...options }
   mock.env(on, env)
   const value = (v: unknown) => ({ value: v })
+  on('fs.read', (_$: any, e: any) => {
+    w.reads.push(e.path)
+    const f = w.files.get(e.path)
+    return f === undefined ? { deny: `ENOENT: ${e.path}` } : value(f.text)
+  })
+  on('fs.stat', (_$: any, e: any) => {
+    const f = w.files.get(e.path)
+    return f === undefined ? { deny: `ENOENT: ${e.path}` } : value({ kind: 'file', size: f.text.length, mtimeMs: f.mtimeMs, isLink: false })
+  })
+  on('command.register', (_$: any, e: any) => value({ command: e.name }))
   const ok = (stdout: string, exitCode = 0, stderr = '') => value({ exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false })
   on('process.run', async (_$: any, e: any) => {
     const argv: string[] = e.argv
@@ -381,6 +480,11 @@ async function start($: any, w: World): Promise<void> {
 
 const PANE = { plugin: 'gcloud-guard', component: 'Pane', requestId: 'gcloud-guard', props: {} } as const
 const BAND = { plugin: 'gcloud-guard', component: 'AbovePrompt', props: {} } as const
+
+async function cmd($: any, command: string, args = ''): Promise<string> {
+  const r: any = await $.command.run({ command, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } } as any)
+  return String(r?.text ?? '')
+}
 
 function bash($: any, command: string): Promise<any> {
   return $.tool.call({ tool: 'Bash', tool_use_id: `t-${Math.random().toString(36).slice(2)}`, command })
@@ -599,8 +703,95 @@ describe('gcloud-guard', () => {
     expect(r.deny).toContain(DENY_TAIL)
   })
 
+  test('the context line is read from the config files at start and drawn above the plugins beneath', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    expect(w.lookups).toEqual([])
+    const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+    const texts = await textsOf(band)
+    expect(texts[0]).toBe('☁ gcloud · project side-project-staging · account dev@example.com · config default · GKE my-cluster (us-central1)')
+    expect(has(texts, /^─+$/)).toBe(true)
+    expect(has(texts, /ENGINE_DEFAULT/)).toBe(true)
+    await band.unmount()
+    expect(await cmd($, 'gcloud-guard')).toContain('project         side-project-staging  (from the configuration file)')
+    expect(await cmd($, 'gcloud-guard')).toContain('kube context    gke_side-project-staging_us-central1_my-cluster')
+    expect(await cmd($, 'gcloud-guard')).toContain('hold setting    all + gsutil + config set')
+  })
+
+  test('the band is hidden when nothing is known, with show_context=false, and with /gcloud-guard off', async ($, on) => {
+    const w = world(on, { files: new Map() })
+    await start($, w)
+    let texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts).toEqual(['ENGINE_DEFAULT'])
+    expect(await cmd($, 'gcloud-guard')).toContain('no gcloud configuration found')
+    w.files = defaultFiles()
+    expect(await cmd($, 'gcloud-guard', 'refresh')).toContain('side-project-staging')
+    expect(await cmd($, 'gcloud-guard', 'off')).toContain('hidden')
+    texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts).toEqual(['ENGINE_DEFAULT'])
+    await cmd($, 'gcloud-guard', 'on')
+    texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts[0]).toContain('side-project-staging')
+  })
+
+  test('show_context=false draws nothing', { options: { show_context: false } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    expect(await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))).toEqual(['ENGINE_DEFAULT'])
+  })
+
+  test('the timer re-reads only when a watched file changed', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const readsAtStart = w.reads.length
+    await w.clock.advance(CONTEXT_TICK_MS * 3)
+    expect(w.reads.length).toBe(readsAtStart)
+    w.files.set(`${GCLOUD_DIR}/configurations/config_default`, { text: '[core]\nproject = other-proj\naccount = dev@example.com\n', mtimeMs: 200 })
+    w.files.set(KUBECONFIG, { text: 'current-context: docker-desktop\n', mtimeMs: 200 })
+    await w.clock.advance(CONTEXT_TICK_MS)
+    expect(w.reads.length).toBeGreaterThan(readsAtStart)
+    const texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts[0]).toBe('☁ gcloud · project other-proj · account dev@example.com · config default')
+  })
+
+  test('CLOUDSDK_CORE_PROJECT wins and is marked; KUBECONFIG with two files takes the one with a context', async ($, on) => {
+    const files = defaultFiles()
+    files.set('/k/empty', { text: 'kind: Config\n', mtimeMs: 1 })
+    files.set('/k/second', { text: 'current-context: gke_p2_europe-west1_eu\n', mtimeMs: 1 })
+    const w = world(on, { files }, { LANG: 'en_US.UTF-8', HOME, CLOUDSDK_CORE_PROJECT: 'env-proj', KUBECONFIG: '/k/empty:/k/second' })
+    await start($, w)
+    const texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts[0]).toBe('☁ gcloud · project env-proj ← CLOUDSDK_CORE_PROJECT · account dev@example.com · config default · GKE eu (europe-west1)')
+    expect(await cmd($, 'gcloud-guard')).toContain('kubeconfig      /k/second')
+  })
+
+  test('a proceeded gcloud config set re-reads the context; a passing gcloud auth does too', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const call = bash($, 'gcloud config set project other-proj')
+    await w.clock.settle()
+    // The pane shows the GKE cluster the session is pointed at
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+    const paneTexts = await textsOf(ui)
+    expect(has(paneTexts, /GKE  /)).toBe(true)
+    expect(has(paneTexts, /my-cluster \(us-central1\)/)).toBe(true)
+    // Pretend the command rewrote the file before Proceed resolves
+    w.files.set(`${GCLOUD_DIR}/configurations/config_default`, { text: '[core]\nproject = other-proj\naccount = dev@example.com\n', mtimeMs: 300 })
+    await ui.press({ key: 'proceed' })
+    await ui.unmount()
+    await w.clock.advance(300)
+    expect((await call).text).toBe('ran')
+    let texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts[0]).toContain('project other-proj')
+    // Not held, but touches the context: refreshed after it ran
+    w.files.set(`${GCLOUD_DIR}/configurations/config_default`, { text: '[core]\nproject = third\naccount = ops@example.com\n', mtimeMs: 400 })
+    expect((await bash($, 'gcloud auth login')).text).toBe('ran')
+    texts = await textsOf(await $.ui.mount({ ...BAND, surface: 'terminal' } as any))
+    expect(texts[0]).toContain('project third · account ops@example.com')
+  })
+
   test('language=auto follows LANG', async ($, on) => {
-    const w = world(on, {}, { LANG: 'zh_TW.UTF-8' })
+    const w = world(on, {}, { LANG: 'zh_TW.UTF-8', HOME })
     await start($, w)
     const call = bash($, 'gcloud compute instances delete web-1')
     await w.clock.settle()

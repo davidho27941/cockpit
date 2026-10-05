@@ -2,11 +2,14 @@
 // classifier, the argv of the read-only lookups, and the report text.
 // No `$` here; shared with register.tsx and the tests.
 
-import type { GuardTool, Report, ReportContext, Risk, RiskFlags, Severity, Track } from '../types'
+import type { GcloudContext, GuardTool, KubeContext, Report, ReportContext, Risk, RiskFlags, Severity, Track } from '../types'
 import { t } from './i18n'
 import type { Lang } from './i18n'
 
-export type { GuardTool, Report, ReportContext, Risk, RiskFlags, Severity, Track }
+export type { GcloudContext, GuardTool, KubeContext, Report, ReportContext, Risk, RiskFlags, Severity, Track }
+
+/** The context line is re-read when one of its files changed; the timer looks every 5 seconds. */
+export const CONTEXT_TICK_MS = 5000
 
 export const PLUGIN = 'gcloud-guard'
 export const PANE = 'gcloud-guard'
@@ -29,6 +32,8 @@ export type Settings = {
   includeGsutil: boolean
   holdConfigSet: boolean
   describeTimeoutMs: number
+  showContext: boolean
+  showOtherContexts: boolean
 }
 
 function num(v: unknown, fallback: number): number {
@@ -53,6 +58,8 @@ export function readSettings(options: Readonly<Record<string, unknown>> | undefi
     includeGsutil: bool(o.include_gsutil, true),
     holdConfigSet: bool(o.hold_config_set, true),
     describeTimeoutMs: Math.round(seconds * 1000),
+    showContext: bool(o.show_context, true),
+    showOtherContexts: bool(o.show_other_contexts, false),
   }
 }
 
@@ -637,7 +644,146 @@ export function denyText(lang: Lang, why: 'cancel' | 'timeout' | 'interrupted' |
 }
 
 /** The rows the pane would need: title and headline, the context block, the lines, the notes, the buttons row. */
-export function paneRows(report: Report | null): number {
+export function paneRows(report: Report | null, hasGke = false): number {
   if (!report) return 8
-  return Math.min(28, 9 + report.lines.length + report.notes.length + (report.context.quiet ? 1 : 0) + (report.context.track !== 'ga' ? 1 : 0))
+  return Math.min(28, 9 + report.lines.length + report.notes.length + (report.context.quiet ? 1 : 0) + (report.context.track !== 'ga' ? 1 : 0) + (hasGke ? 1 : 0))
+}
+
+// ── The context line: gcloud and kube config files ─────────────────────────
+
+/** A gcloud configuration file (INI): `[section]` headers, `key = value` rows, `#` and `;` comments. Keys are `section/key`. */
+export function parseGcloudIni(text: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  let section = ''
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue
+    const head = /^\[([^\]]+)\]$/.exec(line)
+    if (head) {
+      section = (head[1] as string).trim()
+      continue
+    }
+    const eq = line.indexOf('=')
+    if (eq === -1) continue
+    const key = line.slice(0, eq).trim()
+    const value = line.slice(eq + 1).trim()
+    if (!key) continue
+    out[section ? `${section}/${key}` : key] = value
+  }
+  return out
+}
+
+/** The current kubectl context by name: `gke_<project>_<location>_<cluster>` is a GKE cluster, anything else is `other`. */
+export function parseKubeContext(name: string): KubeContext {
+  const n = name.trim()
+  if (n.startsWith('gke_')) {
+    const parts = n.split('_')
+    // gke, project, location, then the cluster (which may hold no `_`, so the rest is joined back for safety)
+    if (parts.length >= 4 && parts[1] && parts[2] && parts[3]) {
+      return { kind: 'gke', name: n, project: parts[1], location: parts[2], cluster: parts.slice(3).join('_') }
+    }
+  }
+  return { kind: 'other', name: n }
+}
+
+/** The `current-context:` line of a kubeconfig, or null. No YAML parser: one regex. */
+export function currentContextOf(kubeconfigText: string): string | null {
+  const m = /^\s*current-context:\s*["']?([^"'\n#]+?)["']?\s*(?:#.*)?$/m.exec(kubeconfigText)
+  const v = m?.[1]?.trim()
+  return v ? v : null
+}
+
+/** KUBECONFIG is a colon-separated list; the first file that names a current context wins. */
+export function splitKubeconfigList(value: string | undefined, home: string | null): string[] {
+  const list = (value ?? '').split(':').map(s => s.trim()).filter(Boolean)
+  if (list.length) return list
+  return home ? [`${home.replace(/\/+$/, '')}/.kube/config`] : []
+}
+
+export type ContextEnv = {
+  CLOUDSDK_CONFIG?: string
+  HOME?: string
+  CLOUDSDK_CORE_PROJECT?: string
+  CLOUDSDK_CORE_ACCOUNT?: string
+  CLOUDSDK_ACTIVE_CONFIG_NAME?: string
+  CLOUDSDK_COMPUTE_ZONE?: string
+  CLOUDSDK_COMPUTE_REGION?: string
+}
+
+export function gcloudConfigDir(env: ContextEnv): string | null {
+  const explicit = (env.CLOUDSDK_CONFIG ?? '').trim()
+  if (explicit) return explicit.replace(/\/+$/, '')
+  const home = (env.HOME ?? '').trim()
+  return home ? `${home.replace(/\/+$/, '')}/.config/gcloud` : null
+}
+
+/** Builds the snapshot from the files' texts and the env; the file reads themselves are the caller's. */
+export function buildContext(input: {
+  env: ContextEnv
+  configDir: string | null
+  activeConfigText: string | null
+  configText: string | null
+  kubeconfigPath: string | null
+  kubeconfigText: string | null
+  now: number
+}): GcloudContext {
+  const { env } = input
+  const configuration = (env.CLOUDSDK_ACTIVE_CONFIG_NAME ?? '').trim() || (input.activeConfigText ?? '').trim() || (input.configDir ? 'default' : '')
+  const ini = input.configText !== null ? parseGcloudIni(input.configText) : {}
+  const envProject = (env.CLOUDSDK_CORE_PROJECT ?? '').trim()
+  const fileProject = (ini['core/project'] ?? '').trim()
+  const project = envProject || fileProject || null
+  const account = (env.CLOUDSDK_CORE_ACCOUNT ?? '').trim() || (ini['core/account'] ?? '').trim() || null
+  const zone = (env.CLOUDSDK_COMPUTE_ZONE ?? '').trim() || (ini['compute/zone'] ?? '').trim() || null
+  const region = (env.CLOUDSDK_COMPUTE_REGION ?? '').trim() || (ini['compute/region'] ?? '').trim() || null
+  const name = input.kubeconfigText !== null ? currentContextOf(input.kubeconfigText) : null
+  return {
+    configDir: input.configDir,
+    configuration: configuration || null,
+    project,
+    projectSource: project ? (envProject ? 'env' : 'file') : null,
+    account,
+    zone,
+    region,
+    kubeconfig: input.kubeconfigPath,
+    kube: name ? parseKubeContext(name) : null,
+    readAt: input.now,
+  }
+}
+
+/** The dim line above the prompt; null when nothing is known. */
+export function contextLine(lang: Lang, ctx: GcloudContext | null, settings: Settings): string | null {
+  if (!ctx) return null
+  const parts: string[] = []
+  if (ctx.project) parts.push(`${t(lang, 'ctx.project', { project: ctx.project })}${ctx.projectSource === 'env' ? ` ${t(lang, 'ctx.fromEnv')}` : ''}`)
+  if (ctx.account) parts.push(t(lang, 'ctx.account', { account: ctx.account }))
+  if (ctx.configuration && (ctx.project || ctx.account)) parts.push(t(lang, 'ctx.config', { name: ctx.configuration }))
+  if (ctx.kube?.kind === 'gke') parts.push(t(lang, 'ctx.gke', { cluster: ctx.kube.cluster, location: ctx.kube.location }))
+  else if (ctx.kube && settings.showOtherContexts) parts.push(t(lang, 'ctx.k8s', { name: ctx.kube.name }))
+  if (!parts.length) return null
+  return `☁ gcloud · ${parts.join(' · ')}`
+}
+
+/** The `/gcloud-guard` output: the whole snapshot and the hold setting. */
+export function contextText(lang: Lang, ctx: GcloudContext | null, settings: Settings): string {
+  const none = t(lang, 'value.none')
+  const lines: string[] = []
+  if (!ctx || (!ctx.configDir && !ctx.project && !ctx.account)) lines.push(t(lang, 'cmd.none'))
+  else {
+    lines.push(t(lang, 'cmd.configDir', { dir: ctx.configDir ?? none }))
+    lines.push(t(lang, 'cmd.configuration', { name: ctx.configuration ?? none }))
+    lines.push(t(lang, 'cmd.project', { project: ctx.project ?? none, source: ctx.projectSource === 'env' ? t(lang, 'cmd.source.env') : t(lang, 'cmd.source.file') }))
+    lines.push(t(lang, 'cmd.account', { account: ctx.account ?? none }))
+    lines.push(t(lang, 'cmd.zone', { zone: ctx.zone ?? none, region: ctx.region ?? none }))
+  }
+  lines.push(t(lang, 'cmd.kubeconfig', { path: ctx?.kubeconfig ?? none }))
+  lines.push(t(lang, 'cmd.kubeContext', { name: ctx?.kube?.name ?? none }))
+  if (ctx?.kube?.kind === 'gke') lines.push(t(lang, 'cmd.gke', { project: ctx.kube.project, location: ctx.kube.location, cluster: ctx.kube.cluster }))
+  lines.push(t(lang, 'cmd.hold', { hold: settings.hold, gsutil: settings.includeGsutil ? 1 : 0, configSet: settings.holdConfigSet ? 1 : 0 }))
+  return lines.join('\n')
+}
+
+/** Bash commands after which the context may have changed: config, credentials, kube context switches. */
+export function touchesContext(command: string): boolean {
+  return /gcloud\s+(?:alpha\s+|beta\s+)?(?:config\b|auth\b|container\s+clusters\s+get-credentials)|kubectl\s+config\s+(?:use-context|set-context|set-cluster|unset)|\bkubectx\b/.test(command)
 }
