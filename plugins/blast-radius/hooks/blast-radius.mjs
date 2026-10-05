@@ -5,6 +5,10 @@
 // moved the user-facing strings into hooks/i18n.mjs (English, Traditional Chinese,
 // Japanese). Logic unchanged. `classify` is exported for the tests.
 //
+// Modified by davidho27941 (2026-10-05): renamed draw()'s first parameter from `t`
+// to `ui`; it shadowed the imported translation function, so every pane rendered
+// empty and every hold ended in the error refusal.
+//
 // Blast Radius: holds a risky Bash command and shows what it would change.
 //
 // tool.call (Bash): if the command is risky, work out its blast radius, open a
@@ -510,8 +514,8 @@ function paneRows(report) {
   return Math.min(24, 9 + report.lines.length + (report.more ? 1 : 0));
 }
 
-function draw(t, state) {
-  const { Box, Text, Button } = t;
+function draw(ui, state) {
+  const { Box, Text, Button } = ui;
   const { report } = state;
   const list = report.lines.map((line, i) => Text({ key: `l${i}`, children: `  ${line}`, wrap: "truncate-end" }));
   if (report.more) {

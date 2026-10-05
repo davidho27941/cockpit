@@ -25,5 +25,13 @@ Modifications by davidho27941 (2026-10-04):
   upstream license) and tsconfig.json (editor type-checking against the types
   Claude Code lays in .claude-plugin/types/) were added by davidho27941.
 
+Modifications by davidho27941 (2026-10-05):
+- hooks/blast-radius.mjs: draw()'s first parameter was renamed from `t` to
+  `ui`. Since the 2026-10-04 change it shadowed the imported translation
+  function t(), so every pane rendered empty and every hold ended in the
+  error refusal. No other change.
+- tests/hold.test.tsx (new): tests of the hold itself (pane and band drawing,
+  Cancel refuses, Proceed runs, language of the pane).
+
 Unmodified upstream files: hooks/hooks.json, screenshots/*, and the upstream
 README kept as README.upstream.md.
