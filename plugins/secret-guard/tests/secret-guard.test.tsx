@@ -11,9 +11,26 @@ import { DEFAULT_LANG, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
   BUILTIN_ALLOW,
   SCAN_DOORS,
+  abbreviateHome,
   bandText,
+  clockText,
   entropy,
+  fingerprint,
+  fromHex,
   hitLabels,
+  hitLine,
+  hitRecords,
+  hmacSha256,
+  isPathLike,
+  lineOf,
+  logText,
+  MAX_RECENT,
+  newFingerprintKey,
+  pushRecent,
+  readLineNumber,
+  shortSource,
+  toHex,
+  toolSource,
   isObviousPlaceholder,
   isPlaceholderValue,
   isScannedDoor,
@@ -372,8 +389,145 @@ describe('i18n', () => {
     expect(status).toContain('secret-guard: enabled')
     expect(status).toContain('redacted this session: 3')
     expect(status).toContain('  google api key: 3')
-    expect(status).toContain('google api key · tool result · 1m ago')
+    expect(status).toContain(`most recent:\n  ${clockText(1000)}  google api key  tool result`)
     expect(statusText('en', { ...base, byLabel: {}, scanToolResults: false, now: 0 })).toContain('prompts and context only')
+  })
+})
+
+// ── Hit records: where, line, fingerprint (pure) ─────────────────────────────
+
+describe('hit records', () => {
+  test('lineOf counts lines; readLineNumber prefers Read\'s own numbers', async () => {
+    const text = 'a\nbb\nccc'
+    expect(lineOf(text, 0)).toBe(1)
+    expect(lineOf(text, 2)).toBe(2)
+    expect(lineOf(text, 5)).toBe(3)
+    const read = '    41\tfoo\n    42\tKEY=x\n    43\tbar'
+    expect(readLineNumber(read, read.indexOf('KEY'))).toBe(42)
+    expect(readLineNumber('12→first\n13→second', 12)).toBe(13)
+    expect(readLineNumber('plain\nsecond line', 8)).toBe(2)
+  })
+
+  test('redact reports each value with its line, inside Read output too', async () => {
+    const read = `     1\t# config\n     2\tGITHUB_TOKEN=${GHP}\n     3\tpassword = ${rep('h', 10)}1`
+    const res = redact(read, S)
+    expect(res.found.map(f => [f.label, f.line])).toEqual([
+      ['github token', 2],
+      ['secret value', 3],
+    ])
+    expect(res.found[0]?.value).toBe(GHP)
+  })
+
+  test('a tool_result block tags its matches with its tool_use_id', async () => {
+    const res = redactBlocks(
+      [
+        { type: 'tool_result', tool_use_id: 'tu-1', content: `x ${GHP}` },
+        { type: 'tool_result', tool_use_id: 'tu-2', content: [{ type: 'text', text: `y ${GLPAT}` }] },
+        { type: 'text', text: `z ${NPM}` },
+      ],
+      S,
+    )
+    expect(res.found.map(f => [f.label, f.toolUseId])).toEqual([
+      ['github token', 'tu-1'],
+      ['gitlab token', 'tu-2'],
+      ['npm token', undefined],
+    ])
+  })
+
+  test('toolSource: a path, else the command or pattern; redacted and clipped', async () => {
+    expect(toolSource('Read', { file_path: '/home/u/proj/.env' }, S)).toBe('/home/u/proj/.env')
+    expect(toolSource('NotebookEdit', { notebook_path: '/n.ipynb' }, S)).toBe('/n.ipynb')
+    expect(toolSource('Bash', { command: 'cat  .env\n| head' }, S)).toBe('cat .env | head')
+    const bearer = rep('q', 12) + 'Zx91' + rep('w', 8)
+    const curl = toolSource('Bash', { command: `curl -H "Authorization: Bearer ${bearer}" x` }, S) ?? ''
+    expect(curl).not.toContain(bearer)
+    expect(curl.startsWith('curl -H "Authorization: Bearer <bearer token>')).toBe(true)
+    expect(toolSource('Grep', { pattern: 'API_KEY' }, S)).toBe('API_KEY')
+    expect(toolSource('Grep', { pattern: 'API_KEY', path: '/home/u/proj' }, S)).toBe('/home/u/proj')
+    expect(toolSource('TodoWrite', { todos: [] }, S)).toBe(undefined)
+    expect(toolSource('Bash', { command: rep('a ', 100) }, S)?.length).toBe(120)
+  })
+
+  test('hitRecords: tool and source by tool_use_id, else the default source; values dropped', async () => {
+    const found = [
+      { label: 'github token', value: GHP, line: 4, toolUseId: 'tu-1' },
+      { label: 'npm token', value: NPM, line: 1 },
+    ]
+    const recs = hitRecords(found, ['#aaaaaaaa', undefined], {
+      where: 'tool-result',
+      agent: 'agent-xyz',
+      at: 5,
+      source: 'fallback',
+      lookup: id => (id === 'tu-1' ? { tool: 'Read', source: '/p/.env' } : undefined),
+    })
+    expect(recs).toEqual([
+      { label: 'github token', where: 'tool-result', agent: 'agent-xyz', at: 5, tool: 'Read', source: '/p/.env', line: 4, fingerprint: '#aaaaaaaa' },
+      { label: 'npm token', where: 'tool-result', agent: 'agent-xyz', at: 5, source: 'fallback', line: 1 },
+    ])
+    expect(JSON.stringify(recs)).not.toContain(GHP)
+  })
+
+  test('HMAC-SHA256 matches RFC 4231 test case 2', async () => {
+    const mac = await hmacSha256(new TextEncoder().encode('Jefe'), new TextEncoder().encode('what do ya want for nothing?'))
+    expect(toHex(mac)).toBe('5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843')
+    expect(toHex(fromHex('00ff10'))).toBe('00ff10')
+  })
+
+  test('fingerprints: the same value, the same print under one key; different otherwise', async () => {
+    const key = newFingerprintKey()
+    expect(key).toMatch(/^[0-9a-f]{64}$/)
+    const a1 = await fingerprint(key, GHP)
+    const a2 = await fingerprint(key, GHP)
+    const b = await fingerprint(key, GLPAT)
+    const other = await fingerprint(newFingerprintKey(), GHP)
+    expect(a1).toMatch(/^#[0-9a-f]{8}$/)
+    expect(a1).toBe(a2)
+    expect(b).not.toBe(a1)
+    expect(other).not.toBe(a1)
+  })
+
+  test('status line, toast tail, home abbreviation, log grouping', async () => {
+    expect(abbreviateHome('/home/u/proj/.env', '/home/u')).toBe('~/proj/.env')
+    expect(abbreviateHome('/etc/hosts', '/home/u')).toBe('/etc/hosts')
+    expect(shortSource('Read', '/home/u/proj/.env')).toBe('Read .env')
+    expect(shortSource('Bash', 'cat .env')).toBe('Bash cat .env')
+    const h1 = { label: 'aws secret access key', where: 'tool-result', agent: null, at: 1000, tool: 'Read', source: '/home/u/proj/.env', line: 4, fingerprint: '#a3f91c02' }
+    const h2 = { label: 'aws secret access key', where: 'tool-result', agent: 'agent-1234567890', at: 2000, tool: 'Bash', source: 'cat /home/u/proj/.env', line: 4, fingerprint: '#a3f91c02' }
+    const h3 = { label: 'github token', where: 'prompt', agent: null, at: 3000, source: 'prompt', line: 1, fingerprint: '#77be1d40' }
+    expect(hitLine('en', h1, '/home/u')).toBe(`${clockText(1000)}  aws secret access key  #a3f91c02  Read ~/proj/.env:4`)
+    expect(hitLine('en', h2, '/home/u')).toBe(`${clockText(2000)}  aws secret access key  #a3f91c02  Bash cat /home/u/proj/.env:4 [agent agent-12]`)
+    expect(hitLine('en', h3, '/home/u')).toBe(`${clockText(3000)}  github token  #77be1d40  prompt`)
+    expect(toastText('en', [{ label: 'github token', count: 1 }], 'tool-result', null, { tool: 'Read', source: '/p/.env' })).toBe('secret-guard: redacted 1 (github token) in tool result · Read .env')
+    const log = logText('en', [h1, h3, h2], '/home/u')
+    const lines = log.split('\n')
+    expect(lines[0]).toContain('3 hit(s) this session, 2 distinct value(s)')
+    expect(lines[1]).toBe('#a3f91c02  aws secret access key  ×2')
+    expect(lines[2]).toBe(`    ${clockText(1000)}  Read ~/proj/.env:4`)
+    expect(lines[4]).toBe('#77be1d40  github token  ×1')
+    expect(logText('en', [], null)).toBe('nothing redacted yet')
+    const noPrint = logText('en', [{ ...h1, fingerprint: undefined }, { ...h2, fingerprint: undefined }], null)
+    expect(noPrint.split('\n')[1]).toBe('aws secret access key  ×2')
+  })
+
+  test('the recent list keeps the newest 100', async () => {
+    const one = (i: number) => ({ label: 'x', where: 'prompt', agent: null, at: i })
+    const list = pushRecent(Array.from({ length: 95 }, (_, i) => one(i)), Array.from({ length: 10 }, (_, i) => one(95 + i)))
+    expect(MAX_RECENT).toBe(100)
+    expect(list.length).toBe(100)
+    expect(list[0]?.at).toBe(5)
+    expect(list.at(-1)?.at).toBe(104)
+  })
+
+  test('an absolute path near the word secret is not a high-entropy secret', async () => {
+    const path = '/Users/someone/workspace/claude-code-mods/plugins/secret-guard/'
+    expect(isPathLike(path)).toBe(true)
+    expect(isPathLike('ab/cd/ef/gh')).toBe(true)
+    expect(isPathLike('plugins/secret-guard/hooks/logic.ts')).toBe(true)
+    expect(isPathLike('Qm9i/c3Rh/cmtX/YWxk')).toBe(false)
+    expect(isPathLike('a/b')).toBe(false)
+    expect(r('M plugins/secret-guard/hooks/logic.ts')).toBe('M plugins/secret-guard/hooks/logic.ts')
+    expect(r(`signing_key: Qm9i/c3Rh/cmtXYWxkZW4xMjM0NTY3ODkwQUJDREVG`)).toBe('signing_key: <high-entropy secret>')
+    expect(r(`extending secret-guard at ${path}`)).toBe(`extending secret-guard at ${path}`)
   })
 })
 
@@ -397,6 +551,7 @@ describe('planAppend', () => {
     expect(JSON.stringify(plan.input)).not.toContain(GHP)
     expect(plan.input.uuid).toBe('u1')
     expect(plan.hits).toEqual([{ label: 'github token', count: 1 }])
+    expect(plan.found.map(f => [f.label, f.toolUseId, f.line])).toEqual([['github token', 't1', 1]])
     expect(plan.where).toBe('tool-result')
     expect(plan.agent).toBe(null)
   })
@@ -524,6 +679,47 @@ describe('secret-guard', () => {
     expect(w.toasts.at(-1)).toBe('secret-guard: redacted 1 (stripe secret key) in attachment')
   })
 
+  test('tool calls pass through untouched while their purpose is remembered', async ($, on) => {
+    const w = world(on)
+    const seen: any[] = []
+    on('tool.call', (_$: any, e: any) => {
+      seen.push(e)
+      return { result: { stdout: 'ok', stderr: '', interrupted: false }, text: 'ok' }
+    })
+    await start($, w)
+    const r: any = await $.tool.call({ tool: 'Bash', tool_use_id: 'tu-9', command: 'cat .env' } as any)
+    expect(r.text).toBe('ok')
+    expect(seen.length).toBe(1)
+    expect(seen[0].command).toBe('cat .env')
+  })
+
+  test('/secret-guard log groups by fingerprint; clear forgets', async ($, on) => {
+    const w = world(on, { LANG: 'en_US.UTF-8', HOME: '/home/u' })
+    await start($, w)
+    for (const text of [`a ${GOOGLE_KEY}`, `b ${GOOGLE_KEY}`, `c ${GHP}`]) await $.prompt.submit({ text, origin: { kind: 'composer' }, wait: false } as any)
+    const log = await command($, 'log')
+    const lines = log.split('\n')
+    expect(lines[0]).toContain('3 hit(s) this session, 2 distinct value(s)')
+    expect(lines[1]).toMatch(/^#[0-9a-f]{8}  google api key  ×2$/)
+    expect(lines.filter(l => /^#[0-9a-f]{8}  github token  ×1$/.test(l)).length).toBe(1)
+    expect(log).not.toContain(GOOGLE_KEY)
+    expect(log).not.toContain(GHP)
+    const status = await command($)
+    expect(status).toMatch(/\d\d:\d\d  github token  #[0-9a-f]{8}  prompt/)
+    expect(await command($, 'clear')).toContain('cleared')
+    expect(await command($)).toContain('nothing redacted yet')
+    expect(await command($, 'log')).toBe('nothing redacted yet')
+  })
+
+  test('fingerprints=false: hits are recorded without a fingerprint', { options: { fingerprints: false } }, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await $.prompt.submit({ text: `k ${GOOGLE_KEY}`, origin: { kind: 'composer' }, wait: false } as any)
+    const log = await command($, 'log')
+    expect(log).not.toMatch(/#[0-9a-f]{8}/)
+    expect(log.split('\n')[1]).toBe('google api key  ×1')
+  })
+
   test('/secret-guard off pauses, on resumes; status and test', async ($, on) => {
     const w = world(on)
     await start($, w)
@@ -537,7 +733,7 @@ describe('secret-guard', () => {
     expect(live.text).toBe('key <google api key>')
     const status = await command($)
     expect(status).toContain('redacted this session: 1')
-    expect(status).toContain('google api key · prompt')
+    expect(status).toMatch(/\d\d:\d\d  google api key  #[0-9a-f]{8}  prompt/)
     const selfTest = await command($, 'test')
     expect(selfTest).toContain('12 detector(s) fired')
     expect(selfTest).not.toContain('AIza')

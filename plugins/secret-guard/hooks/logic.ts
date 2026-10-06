@@ -7,7 +7,11 @@ import type { Lang } from './i18n'
 import { t } from './i18n'
 
 export const PLUGIN = 'secret-guard'
-export const MAX_RECENT = 20
+export const MAX_RECENT = 100
+/** How many hits `/secret-guard` (the status) lists */
+export const STATUS_RECENT = 20
+/** How long a recorded source may be */
+export const SOURCE_MAX = 120
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
@@ -25,6 +29,8 @@ export type Settings = {
   scanToolResults: boolean
   /** How the band line is framed (`band_style`) */
   bandStyle: BandStyle
+  /** Record a per-session HMAC fingerprint of each redacted value (`fingerprints`) */
+  fingerprints: boolean
 }
 
 function bool(v: unknown, fallback: boolean): boolean {
@@ -96,6 +102,7 @@ export function readSettings(options: Readonly<Record<string, unknown>> | undefi
     allowPatterns: parseAllowPatterns(typeof o.allow_patterns === 'string' ? o.allow_patterns : ''),
     scanToolResults: bool(o.scan_tool_results, true),
     bandStyle: parseBandStyle(o.band_style),
+    fingerprints: bool(o.fingerprints, true),
   }
 }
 
@@ -255,6 +262,22 @@ const ENTROPY_WINDOW = 60
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
+ * A file path rather than a token. Without this, a path written near a word such
+ * as `secret` (a folder called secret-guard) would be taken for a high-entropy
+ * secret. Two shapes: rooted (`/`, `~/`, `./`, `../`) with at least three
+ * separators; or relative with at least three separators where every segment is
+ * a lowercase word (`plugins/secret-guard/hooks/logic`), which random base64
+ * practically never is.
+ */
+export function isPathLike(v: string): boolean {
+  const slashes = (v.match(/\//g) ?? []).length
+  if (slashes < 3) return false
+  if (/^(\/|~\/|\.{1,2}\/)/.test(v)) return true
+  const segments = v.split('/').filter(Boolean)
+  return segments.length >= 3 && segments.every(seg => /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(seg))
+}
+
+/**
  * A long random-looking token next to a secret-ish name. Conservative: hex hashes,
  * UUIDs, base64 payloads of data URIs and tokens with no such name nearby are left alone.
  */
@@ -267,6 +290,7 @@ export const ENTROPY_DETECTOR: Detector = {
     if (/^[0-9a-fA-F]+$/.test(v)) return true
     if (UUID_RE.test(v)) return true
     if (v.startsWith('<') || v.includes('…')) return true
+    if (isPathLike(v)) return true
     if (entropy(v) < ENTROPY_MIN) return true
     const before = m.input.slice(Math.max(0, m.offset - ENTROPY_WINDOW), m.offset)
     if (/base64,\s*$/.test(before)) return true
@@ -277,7 +301,34 @@ export const ENTROPY_DETECTOR: Detector = {
 // ── redact ─────────────────────────────────────────────────────────────────
 
 export type Hit = { label: string; count: number }
-export type Redaction = { text: string; hits: Hit[] }
+
+/**
+ * One redacted value, as found. `value` lives only in memory, long enough for the
+ * caller to fingerprint it; it is never written to state, logs or toasts.
+ * `toolUseId` is set for matches inside a tool_result block.
+ */
+export type Found = { label: string; value: string; line: number; toolUseId?: string }
+export type Redaction = { text: string; hits: Hit[]; found: Found[] }
+
+/** 1-based line of `index` in `text`. */
+export function lineOf(text: string, index: number): number {
+  let n = 1
+  const end = Math.min(Math.max(0, index), text.length)
+  for (let i = 0; i < end; i += 1) if (text.charCodeAt(i) === 10) n += 1
+  return n
+}
+
+/**
+ * The line number a person would use for `index`: Read's own number when the line
+ * starts with one (`    12\t…` or `12→…`), else the offset-derived line.
+ */
+export function readLineNumber(text: string, index: number): number {
+  const at = Math.min(Math.max(0, index), text.length)
+  const start = text.lastIndexOf('\n', at - 1) + 1
+  const m = /^\s*(\d+)[\t→]/.exec(text.slice(start, start + 16))
+  if (m && m[1]) return Number(m[1])
+  return lineOf(text, at)
+}
 
 /** The placeholder the model reads instead of the value; with `keepHint`, the last four characters ride along. */
 export function placeholder(label: string, secret: string, keepHint: boolean): string {
@@ -305,7 +356,7 @@ function readArgs(args: unknown[]): Match {
   return { whole, groups, offset, input }
 }
 
-function applyDetector(text: string, d: Detector, settings: Settings, counts: Map<string, number>): string {
+function applyDetector(text: string, d: Detector, settings: Settings, counts: Map<string, number>, found: Found[]): string {
   if (d.when && !d.when(text)) return text
   d.regex.lastIndex = 0
   return text.replace(d.regex, (...args: unknown[]) => {
@@ -316,20 +367,22 @@ function applyDetector(text: string, d: Detector, settings: Settings, counts: Ma
     if (d.skip && d.skip(secret, m)) return m.whole
     const label = typeof d.label === 'function' ? d.label(m) : d.label
     counts.set(label, (counts.get(label) ?? 0) + 1)
+    found.push({ label, value: secret, line: readLineNumber(m.input, m.offset + (m.groups.pre ?? '').length) })
     return `${m.groups.pre ?? ''}${placeholder(label, secret, settings.keepHint)}${m.groups.post ?? ''}`
   })
 }
 
 /** Replaces every secret the detectors find; idempotent (placeholders never match). */
 export function redact(text: string, settings: Settings): Redaction {
-  if (!text) return { text, hits: [] }
+  if (!text) return { text, hits: [], found: [] }
   const counts = new Map<string, number>()
+  const found: Found[] = []
   let out = text
-  for (const d of DETECTORS) out = applyDetector(out, d, settings, counts)
-  for (const r of settings.customRules) out = applyDetector(out, { id: `custom:${r.label}`, label: r.label, regex: r.regex }, settings, counts)
-  if (settings.entropyBackstop) out = applyDetector(out, ENTROPY_DETECTOR, settings, counts)
+  for (const d of DETECTORS) out = applyDetector(out, d, settings, counts, found)
+  for (const r of settings.customRules) out = applyDetector(out, { id: `custom:${r.label}`, label: r.label, regex: r.regex }, settings, counts, found)
+  if (settings.entropyBackstop) out = applyDetector(out, ENTROPY_DETECTOR, settings, counts, found)
   const hits = [...counts.entries()].map(([label, count]) => ({ label, count }))
-  return { text: out, hits }
+  return { text: out, hits, found }
 }
 
 /** Sums hit lists. */
@@ -356,36 +409,46 @@ export type Block = { type: string; [field: string]: unknown }
  * array of text blocks). Every other block is returned as is. `changed` is false
  * when nothing was redacted, so the caller can pass the row through untouched.
  */
-export function redactBlocks(blocks: readonly Block[], settings: Settings): { blocks: Block[]; hits: Hit[]; changed: boolean } {
+export function redactBlocks(
+  blocks: readonly Block[],
+  settings: Settings,
+  toolUseId?: string,
+): { blocks: Block[]; hits: Hit[]; found: Found[]; changed: boolean } {
   const all: Hit[][] = []
+  const found: Found[] = []
   let changed = false
+  const tag = (list: Found[], id: string | undefined) => (id === undefined ? list : list.map(f => ({ ...f, toolUseId: id })))
   const out = blocks.map(b => {
     if (b.type === 'text' && typeof b.text === 'string') {
       const r = redact(b.text, settings)
       if (!r.hits.length) return b
       changed = true
       all.push(r.hits)
+      found.push(...tag(r.found, toolUseId))
       return { ...b, text: r.text }
     }
     if (b.type === 'tool_result') {
+      const id = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined
       if (typeof b.content === 'string') {
         const r = redact(b.content, settings)
         if (!r.hits.length) return b
         changed = true
         all.push(r.hits)
+        found.push(...tag(r.found, id))
         return { ...b, content: r.text }
       }
       if (Array.isArray(b.content)) {
-        const inner = redactBlocks(b.content as Block[], settings)
+        const inner = redactBlocks(b.content as Block[], settings, id)
         if (!inner.changed) return b
         changed = true
         all.push(inner.hits)
+        found.push(...inner.found)
         return { ...b, content: inner.blocks }
       }
     }
     return b
   })
-  return { blocks: changed ? out : [...blocks], hits: mergeHits(all), changed }
+  return { blocks: changed ? out : [...blocks], hits: mergeHits(all), found, changed }
 }
 
 // ── Doors ──────────────────────────────────────────────────────────────────
@@ -403,7 +466,7 @@ export function isScannedDoor(door: string, settings: Settings): boolean {
 // ── The session.append decision ────────────────────────────────────────────
 
 export type AppendRow = { message: { content?: unknown; [k: string]: unknown }; door: string; agentId?: string; [k: string]: unknown }
-export type AppendPlan = { kind: 'pass' } | { kind: 'rewrite'; input: AppendRow; hits: Hit[]; where: string; agent: string | null }
+export type AppendPlan = { kind: 'pass' } | { kind: 'rewrite'; input: AppendRow; hits: Hit[]; found: Found[]; where: string; agent: string | null }
 
 /**
  * What the session.append hook should do with a row: pass it through (a door the
@@ -420,6 +483,7 @@ export function planAppend(e: AppendRow, settings: Settings): AppendPlan {
     kind: 'rewrite',
     input: { ...e, message: { ...e.message, content: r.blocks } },
     hits: r.hits,
+    found: r.found,
     where: String(e.door),
     agent: typeof e.agentId === 'string' ? e.agentId : null,
   }
@@ -443,11 +507,138 @@ export function whereText(lang: Lang, where: string, agent: string | null): stri
   return agent ? t(lang, 'where.agent', { where: base, id: agent.slice(0, 8) }) : base
 }
 
-export function toastText(lang: Lang, hits: readonly Hit[], where: string, agent: string | null): string {
+export function toastText(lang: Lang, hits: readonly Hit[], where: string, agent: string | null, from?: { tool?: string; source?: string }): string {
   const n = hitTotal(hits)
   const labels = hitLabels(hits)
-  if (where === 'prompt' && !agent) return t(lang, 'toast.redacted', { n, labels })
-  return t(lang, 'toast.redactedWhere', { n, labels, where: whereText(lang, where, agent) })
+  const base = where === 'prompt' && !agent ? t(lang, 'toast.redacted', { n, labels }) : t(lang, 'toast.redactedWhere', { n, labels, where: whereText(lang, where, agent) })
+  const short = from?.tool ? shortSource(from.tool, from.source) : ''
+  return short ? `${base} · ${short}` : base
+}
+
+// ── Where a hit came from ──────────────────────────────────────────────────
+
+/**
+ * What a tool call is about, for the hit record: a file path for tools that name
+ * one, else a Bash command or a Grep pattern. Never the tool's output. The result
+ * is redacted itself (a command line may carry a token) and cut to SOURCE_MAX.
+ */
+export function toolSource(tool: string, input: Readonly<Record<string, unknown>>, settings: Settings): string | undefined {
+  const pick = (k: string) => (typeof input[k] === 'string' && (input[k] as string).trim() ? (input[k] as string) : undefined)
+  const raw = pick('file_path') ?? pick('path') ?? pick('notebook_path') ?? (tool === 'Bash' ? pick('command') : undefined) ?? pick('pattern') ?? pick('url') ?? pick('query')
+  if (raw === undefined) return undefined
+  return clip(redact(raw.replace(/\s+/g, ' ').trim(), settings).text, SOURCE_MAX)
+}
+
+export function clip(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`
+}
+
+/** `~` for the home directory, so the list stays short. */
+export function abbreviateHome(path: string, home: string | null | undefined): string {
+  if (!home) return path
+  const h = home.replace(/\/+$/, '')
+  if (path === h) return '~'
+  return path.startsWith(`${h}/`) ? `~${path.slice(h.length)}` : path
+}
+
+/** The toast's tail: the tool and the file's base name, or the command cut short. */
+export function shortSource(tool: string | undefined, source: string | undefined): string {
+  if (!source) return ''
+  const isPath = /^(\/|~\/|\.{1,2}\/)/.test(source) || /^[^\s]+\.[A-Za-z0-9]+$/.test(source)
+  const what = isPath ? source.slice(source.lastIndexOf('/') + 1) : clip(source, 30)
+  return tool ? `${tool} ${what}` : what
+}
+
+/** HH:MM in the machine's local time. */
+export function clockText(at: number): string {
+  const d = new Date(at)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** Where one hit happened, as one phrase: `Read ~/proj/.env:4`, `Bash cat .env`, `prompt`. */
+export function locationText(lang: Lang, h: RecentHit, home: string | null | undefined): string {
+  const parts: string[] = []
+  if (h.tool) parts.push(h.tool)
+  if (h.source) parts.push(`${abbreviateHome(h.source, home)}${h.line !== undefined && h.tool ? `:${h.line}` : ''}`)
+  if (!h.tool && h.source === h.where) parts.length = 0
+  if (!parts.length) parts.push(whereText(lang, h.where, null))
+  else if (!h.tool) parts.unshift(`${whereText(lang, h.where, null)}:`)
+  if (h.agent) parts.push(t(lang, 'cmd.hit.agent', { id: h.agent.slice(0, 8) }))
+  return parts.join(' ')
+}
+
+/** One line of the status list: `14:02  aws secret access key  #a3f91c02  Read ~/proj/.env:4`. */
+export function hitLine(lang: Lang, h: RecentHit, home: string | null | undefined): string {
+  return [clockText(h.at), h.label, h.fingerprint, locationText(lang, h, home)].filter(Boolean).join('  ')
+}
+
+/**
+ * `/secret-guard log`: every recorded hit, grouped by fingerprint (by label when
+ * fingerprints are off), the busiest group first, each location indented.
+ */
+export function logText(lang: Lang, recent: readonly RecentHit[], home: string | null | undefined): string {
+  if (!recent.length) return t(lang, 'cmd.status.none')
+  const groups = new Map<string, { fingerprint?: string; label: string; hits: RecentHit[] }>()
+  for (const h of recent) {
+    const key = h.fingerprint ? `${h.fingerprint} ${h.label}` : `label:${h.label}`
+    const g = groups.get(key) ?? { fingerprint: h.fingerprint, label: h.label, hits: [] }
+    g.hits.push(h)
+    groups.set(key, g)
+  }
+  const lines = [t(lang, 'cmd.log.header', { n: recent.length, groups: groups.size })]
+  for (const g of [...groups.values()].sort((a, b) => b.hits.length - a.hits.length)) {
+    lines.push([g.fingerprint, g.label, `×${g.hits.length}`].filter(Boolean).join('  '))
+    for (const h of g.hits) lines.push(`    ${clockText(h.at)}  ${locationText(lang, h, home)}`)
+  }
+  return lines.join('\n')
+}
+
+// ── Fingerprints ───────────────────────────────────────────────────────────
+
+export function toHex(bytes: Uint8Array): string {
+  let out = ''
+  for (const b of bytes) out += b.toString(16).padStart(2, '0')
+  return out
+}
+
+export function fromHex(hex: string): Uint8Array {
+  const out = new Uint8Array(Math.floor(hex.length / 2))
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  return out
+}
+
+/** A fresh 32-byte fingerprint key, hex. */
+export function newFingerprintKey(): string {
+  return toHex(crypto.getRandomValues(new Uint8Array(32)))
+}
+
+async function sha256(data: Uint8Array): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+}
+
+function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length)
+  out.set(a, 0)
+  out.set(b, a.length)
+  return out
+}
+
+/**
+ * HMAC-SHA256 (RFC 2104) over `crypto.subtle.digest`, the one Web Crypto call the
+ * hooks environment declares: H((K ⊕ opad) ‖ H((K ⊕ ipad) ‖ m)), block size 64.
+ */
+export async function hmacSha256(key: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
+  const block = new Uint8Array(64)
+  block.set(key.length > 64 ? await sha256(key) : key)
+  const ipad = block.map(b => b ^ 0x36)
+  const opad = block.map(b => b ^ 0x5c)
+  return sha256(concat(opad, await sha256(concat(ipad, message))))
+}
+
+/** `#` + the first 8 hex digits of HMAC-SHA256(key, value). */
+export async function fingerprint(keyHex: string, value: string): Promise<string> {
+  const mac = await hmacSha256(fromHex(keyHex), new TextEncoder().encode(value))
+  return `#${toHex(mac).slice(0, 8)}`
 }
 
 export type BandState = { isPaused: boolean; total: number; recent: readonly RecentHit[]; badPatterns: readonly string[]; enabled: boolean }
@@ -462,7 +653,7 @@ export function bandText(lang: Lang, s: BandState): string | null {
   return t(lang, 'band.summary', { n: s.total, label: last?.label ?? '', where: last ? whereText(lang, last.where, last.agent) : '' })
 }
 
-export type StatusState = BandState & { byLabel: Readonly<Record<string, number>>; scanToolResults: boolean; now: number }
+export type StatusState = BandState & { byLabel: Readonly<Record<string, number>>; scanToolResults: boolean; now: number; home?: string | null }
 
 export function statusText(lang: Lang, s: StatusState): string {
   const lines: string[] = []
@@ -477,7 +668,8 @@ export function statusText(lang: Lang, s: StatusState): string {
   lines.push(t(lang, 'cmd.status.byLabel'))
   for (const [label, n] of Object.entries(s.byLabel).sort((a, b) => b[1] - a[1])) lines.push(`  ${label}: ${n}`)
   lines.push(t(lang, 'cmd.status.recent'))
-  for (const h of [...s.recent].slice(-10).reverse()) lines.push(`  ${h.label} · ${whereText(lang, h.where, h.agent)} · ${t(lang, 'ago', { d: duration(s.now - h.at) })}`)
+  for (const h of [...s.recent].slice(-STATUS_RECENT).reverse()) lines.push(`  ${hitLine(lang, h, s.home)}`)
+  if (s.recent.length > STATUS_RECENT) lines.push(t(lang, 'cmd.status.more', { n: s.recent.length - STATUS_RECENT }))
   return lines.join('\n')
 }
 
@@ -510,11 +702,35 @@ export function selfTestText(lang: Lang, settings: Settings): string {
   return lines.join('\n')
 }
 
-/** Appends hits to the session's recent list, newest last, keeping at most MAX_RECENT. */
-export function pushRecent(recent: readonly RecentHit[], hits: readonly Hit[], where: string, agent: string | null, at: number): RecentHit[] {
-  const out = [...recent]
-  for (const h of hits) for (let i = 0; i < h.count; i += 1) out.push({ label: h.label, where, agent, at })
-  return out.slice(-MAX_RECENT)
+/** Appends hit records to the session's recent list, newest last, keeping at most MAX_RECENT. */
+export function pushRecent(recent: readonly RecentHit[], items: readonly RecentHit[]): RecentHit[] {
+  return [...recent, ...items].slice(-MAX_RECENT)
+}
+
+export type ToolInfo = { tool: string; source?: string }
+
+/**
+ * The hit records for one redaction, values dropped: each found value with its
+ * tool and source (looked up by tool_use_id, else the default source), its line
+ * and its fingerprint (computed by the caller; undefined when off).
+ */
+export function hitRecords(
+  found: readonly Found[],
+  fingerprints: readonly (string | undefined)[],
+  ctx: { where: string; agent: string | null; at: number; source?: string; lookup: (toolUseId: string) => ToolInfo | undefined },
+): RecentHit[] {
+  return found.map((f, i) => {
+    const info = f.toolUseId !== undefined ? ctx.lookup(f.toolUseId) : undefined
+    const rec: RecentHit = { label: f.label, where: ctx.where, agent: ctx.agent, at: ctx.at }
+    if (info) {
+      rec.tool = info.tool
+      if (info.source) rec.source = info.source
+    } else if (ctx.source) rec.source = ctx.source
+    rec.line = f.line
+    const fp = fingerprints[i]
+    if (fp) rec.fingerprint = fp
+    return rec
+  })
 }
 
 export function addByLabel(byLabel: Readonly<Record<string, number>>, hits: readonly Hit[]): Record<string, number> {

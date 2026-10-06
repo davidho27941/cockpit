@@ -56,7 +56,7 @@ const en = {
   'where.compaction': 'compaction',
   'where.agent': (p: Params) => `${p.where}, agent ${p.id}`,
   // command
-  'cmd.description': 'Secret redaction status; off / on pause or resume for this session; test runs the detectors over a built-in sample',
+  'cmd.description': 'Secret redaction status; log lists every hit by fingerprint; clear empties it; off / on pause or resume for this session; test runs the detectors over a built-in sample',
   'cmd.status.enabled': 'secret-guard: enabled',
   'cmd.status.paused': 'secret-guard: paused for this session (/secret-guard on resumes)',
   'cmd.status.disabled': 'secret-guard: disabled in settings (enabled = false)',
@@ -73,8 +73,12 @@ const en = {
   'cmd.test.header': 'secret-guard self-test over a built-in sample of fake values:',
   'cmd.test.fired': (p: Params) => `  ✓ ${p.label} × ${p.n}`,
   'cmd.test.summary': (p: Params) => `${p.n} detector(s) fired, ${p.left} placeholder(s) in the result.`,
-  'cmd.usage': 'Usage: /secret-guard (status), /secret-guard off | on (pause / resume), /secret-guard test (self-test)',
+  'cmd.usage': 'Usage: /secret-guard (status), /secret-guard log (every hit, by fingerprint), /secret-guard clear (forget them), /secret-guard off | on (pause / resume), /secret-guard test (self-test)',
   'ago': (p: Params) => `${p.d} ago`,
+  'cmd.status.more': (p: Params) => `  … ${p.n} more (/secret-guard log lists all)`,
+  'cmd.hit.agent': (p: Params) => `[agent ${p.id}]`,
+  'cmd.log.header': (p: Params) => `secret-guard: ${p.n} hit(s) this session, ${p.groups} distinct value(s) (fingerprints are this session's only):`,
+  'cmd.cleared': 'secret-guard: the hit list and the counters for this session are cleared.',
 } as const
 
 export type MessageKey = keyof typeof en
@@ -97,7 +101,7 @@ const zhTW: Messages = {
   'where.note': '註記',
   'where.compaction': 'compaction',
   'where.agent': p => `${p.where}，agent ${p.id}`,
-  'cmd.description': '機敏資料遮蔽狀態；off / on 暫停或恢復本 session；test 用內建假資料跑一次偵測',
+  'cmd.description': '機敏資料遮蔽狀態；log 依指紋列出每一筆；clear 清除紀錄；off / on 暫停或恢復本 session；test 用內建假資料跑一次偵測',
   'cmd.status.enabled': 'secret-guard：啟用中',
   'cmd.status.paused': 'secret-guard：本 session 已暫停（/secret-guard on 恢復）',
   'cmd.status.disabled': 'secret-guard：已在設定中停用（enabled = false）',
@@ -114,8 +118,12 @@ const zhTW: Messages = {
   'cmd.test.header': 'secret-guard 自我測試（內建假資料）：',
   'cmd.test.fired': p => `  ✓ ${p.label} × ${p.n}`,
   'cmd.test.summary': p => `${p.n} 個偵測器觸發，結果中有 ${p.left} 個 placeholder。`,
-  'cmd.usage': '用法：/secret-guard（狀態）、/secret-guard off | on（暫停／恢復）、/secret-guard test（自我測試）',
+  'cmd.usage': '用法：/secret-guard（狀態）、/secret-guard log（依指紋列出每一筆）、/secret-guard clear（清除紀錄）、/secret-guard off | on（暫停／恢復）、/secret-guard test（自我測試）',
   'ago': p => `${p.d} 前`,
+  'cmd.status.more': p => `  … 還有 ${p.n} 筆（/secret-guard log 列出全部）`,
+  'cmd.hit.agent': p => `[agent ${p.id}]`,
+  'cmd.log.header': p => `secret-guard：本 session 共 ${p.n} 筆，${p.groups} 個不同的值（指紋只在本 session 有效）：`,
+  'cmd.cleared': 'secret-guard：本 session 的紀錄與計數已清除。',
 }
 
 const ja: Messages = {
@@ -135,7 +143,7 @@ const ja: Messages = {
   'where.note': 'ノート',
   'where.compaction': 'compaction',
   'where.agent': p => `${p.where}、agent ${p.id}`,
-  'cmd.description': '秘密情報の伏せ字の状態；off / on でこのセッションの一時停止・再開；test は内蔵サンプルで検出器を試す',
+  'cmd.description': '秘密情報の伏せ字の状態；log は指紋ごとに全件を表示；clear で記録を消去；off / on でこのセッションの一時停止・再開；test は内蔵サンプルで検出器を試す',
   'cmd.status.enabled': 'secret-guard：有効',
   'cmd.status.paused': 'secret-guard：このセッションでは一時停止中（/secret-guard on で再開）',
   'cmd.status.disabled': 'secret-guard：設定で無効（enabled = false）',
@@ -152,8 +160,12 @@ const ja: Messages = {
   'cmd.test.header': 'secret-guard セルフテスト（内蔵のダミー値）：',
   'cmd.test.fired': p => `  ✓ ${p.label} × ${p.n}`,
   'cmd.test.summary': p => `${p.n} 個の検出器が反応し、結果に ${p.left} 個のプレースホルダーがあります。`,
-  'cmd.usage': '使い方：/secret-guard（状態）、/secret-guard off | on（一時停止／再開）、/secret-guard test（セルフテスト）',
+  'cmd.usage': '使い方：/secret-guard（状態）、/secret-guard log（指紋ごとに全件）、/secret-guard clear（記録を消去）、/secret-guard off | on（一時停止／再開）、/secret-guard test（セルフテスト）',
   'ago': p => `${p.d}前`,
+  'cmd.status.more': p => `  … ほか ${p.n} 件（/secret-guard log で全件）`,
+  'cmd.hit.agent': p => `[agent ${p.id}]`,
+  'cmd.log.header': p => `secret-guard：このセッションで ${p.n} 件、異なる値は ${p.groups} 個（指紋はこのセッション内でのみ有効）：`,
+  'cmd.cleared': 'secret-guard：このセッションの記録とカウントを消去しました。',
 }
 
 export const MESSAGES: Record<Lang, Messages> = { en: en as Messages, 'zh-TW': zhTW, ja }

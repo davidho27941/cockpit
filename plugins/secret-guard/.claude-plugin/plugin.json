@@ -66,6 +66,12 @@
         "rule",
         "plain"
       ]
+    },
+    "fingerprints": {
+      "type": "boolean",
+      "title": "Fingerprints",
+      "description": "Record a short fingerprint of each redacted value (HMAC-SHA256 under a random key made for this session), so /secret-guard log can tell the same secret from a different one. Never the value; nothing is kept past the session.",
+      "default": true
     }
   }
 }

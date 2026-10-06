@@ -66,9 +66,33 @@ Installed, it is on. The band above the prompt appears once something has been r
 
 | Command | Does |
 |---|---|
-| `/secret-guard` | status: enabled / paused, what is scanned, totals by label, the last 10 redactions as label · where · time ago |
+| `/secret-guard` | status: enabled / paused, what is scanned, totals by label, and the last 20 hits, one per line (see below) |
+| `/secret-guard log` | every hit recorded this session (up to 100), grouped by fingerprint: the same secret seen in several places is one group |
+| `/secret-guard clear` | forgets the hit list and the counters of this session |
 | `/secret-guard off` / `on` | pause / resume for this session (the `enabled` setting is the permanent switch) |
 | `/secret-guard test` | runs every detector over a built-in sample of obviously fake values and prints which labels fired; a self-test, no real secrets involved |
+
+## The hit record
+
+Each redaction is recorded for this session, to help you find where secrets live and whether the same one turns up in several places. Nothing is kept past the session, nothing is written to disk, and the value itself is never stored, shown or logged.
+
+```
+14:02  aws secret access key  #a3f91c02  Read ~/proj/.env:4
+14:02  github token           #77be1d40  Read ~/proj/.env:6
+14:05  aws secret access key  #a3f91c02  Bash cat ~/proj/.env:2 [agent 3fa9c1d2]
+14:07  google api key         #0b5e7a91  prompt
+```
+
+| Field | What it is |
+|---|---|
+| time | when the row passed |
+| label | the placeholder's label |
+| fingerprint | `#` + the first 8 hex digits of HMAC-SHA256 over the value, keyed with 32 random bytes made when the session starts (kept in the session's `$.state` so a hot reload keeps fingerprints stable, never in `$.store`). The same value gets the same fingerprint within the session; a different session has a different key, so fingerprints cannot be compared across sessions, and without the key a short password cannot be brute-forced from its fingerprint. Off with `fingerprints = false`. |
+| tool and source | for a tool result: the tool and what the call was about, a file path for tools that name one (`Read`, `Edit`, `Grep` with a path, `NotebookEdit`), else the Bash command or the Grep pattern. A `tool.call` hook remembers this per `tool_use_id` and passes the call through untouched; the source is itself redacted and cut to 120 characters, and it is never the tool's output. For your prompt it says `prompt`; for context it names the block (`claudeMd`); for an attachment its type |
+| line | the line of the match in the scanned text: `Read`'s own line numbers when the output carries them, otherwise counted from the start of that text (for Bash, a line of the output, not of a file) |
+| agent | the subagent whose conversation carried it, when it was not the main one |
+
+The toast names the source too: `secret-guard: redacted 2 (aws secret access key, github token) in tool result · Read .env`.
 
 ## Settings
 
@@ -81,6 +105,7 @@ Installed, it is on. The band above the prompt appears once something has been r
 | `custom_patterns` | empty | Extra detectors, one per line as `label=regex` (JavaScript regex; `/…/i` form accepted; `g` is added). An invalid line is shown once in the band and in the status, and ignored. |
 | `allow_patterns` | empty | One regex per line; a match that also matches one of these is left alone. The AWS documentation example pair (`AKIAIOSFODNN7EXAMPLE` and its secret) is always allowed. |
 | `scan_tool_results` | `true` | Off: only your prompts, slash-command rows and the context blocks are scanned; tool results, attachments, deliveries, notes and compaction summaries pass through |
+| `fingerprints` | `true` | Record a per-session HMAC fingerprint of each redacted value (see "The hit record"); off records the hit without one |
 | `band_style` | `box` | How the band line is framed: `box` (a rounded frame, dim normally and yellow while paused or with an invalid custom pattern), `rule` (a thin line beneath it), `plain` (text only) |
 
 Set them with `/plugin configure secret-guard@cockpit`.
@@ -108,19 +133,21 @@ claude plugin validate ./plugins/secret-guard
 Result (v0.1.0, Claude Code 2.1.289):
 
 ```
-hooks: session.start, prompt.submit, session.append, prompt.context, prompt.attachment,
+hooks: session.start, prompt.submit, tool.call, session.append, prompt.context, prompt.attachment,
        command.run{command=secret-guard}, ui.render{component=AbovePrompt}
 calls: $.clock.now, $.command.register, $.env.get, $.state.get, $.state.set, $.ui.resolve, $.ui.toast
-env reads: LANG, LC_ALL, LC_MESSAGES · env writes: nothing
+env reads: HOME, LANG, LC_ALL, LC_MESSAGES · env writes: nothing
 ```
 
-No `$.fs`, no `$.process`, no `$.http`, no model calls: the mod reads nothing but the rows that pass through it and writes nothing but their rewrite. What it keeps in `$.state` is counts, labels and where a redaction happened, never a value; the same goes for toasts and the debug log.
+No `$.fs`, no `$.process`, no `$.http`, no model calls: the mod reads nothing but the rows that pass through it and writes nothing but their rewrite. The `tool.call` hook only notes what each call is about and passes it on unchanged. What it keeps in `$.state` is counts, labels, where a redaction happened, fingerprints and the session's fingerprint key, never a value; the same goes for toasts and the debug log. `HOME` is read only to shorten paths to `~` in the list.
 
 ## Limits
 
 - Detection is by shape. A secret in an unusual format, cut across two lines, or encoded is not seen.
 - Everything runs on every row the model reads, in the main conversation and in subagents; the regexes are linear and the cost is negligible next to a model request, but a very large tool result (megabytes) is scanned in full.
 - The band is one line; the status command has the detail.
+- The hit list holds the newest 100 hits; `/secret-guard clear` empties it.
+- A path written near a word like `secret` is not taken for a secret: the entropy backstop skips rooted tokens with three or more `/`, and relative ones with three or more `/` whose segments are all lowercase words (`plugins/secret-guard/hooks/logic.ts`). A base64 secret that happens to start with `/` and contain three `/` would be missed by that one detector.
 - Only text blocks and `tool_result` blocks are rewritten. Thinking, tool_use, image and document blocks are pinned by the engine or carry no text.
 
 ## Development
