@@ -9,6 +9,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_LANG, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
+  lastHitText,
   clipMiddle,
   BUILTIN_ALLOW,
   SCAN_DOORS,
@@ -384,7 +385,16 @@ describe('i18n', () => {
     expect(bandText('en', { ...base, isPaused: true })).toBe('🛡 secret-guard · paused (/secret-guard on resumes)')
     expect(bandText('en', { ...base, badPatterns: ['broken=(x'] })).toBe('🛡 secret-guard · 1 invalid custom pattern(s) ignored: broken')
     const recent = [{ label: 'google api key', where: 'tool-result', agent: null, at: 1000 }]
-    expect(bandText('en', { ...base, total: 3, recent })).toBe('🛡 secret-guard · 3 redacted this session · last: google api key (tool result)')
+    const hhmm = clockText(1000)
+    expect(bandText('en', { ...base, total: 3, recent })).toBe(`🛡 secret-guard · 3 redacted this session · last: google api key · tool result · ${hhmm}`)
+    const traced = [{ label: 'github token', where: 'tool-result', agent: null, at: 1000, tool: 'Read', source: '/private/tmp/x/scratchpad/fp-test.env', line: 2, fingerprint: '#ea21bbd9' }]
+    expect(bandText('en', { ...base, total: 4, recent: traced })).toBe(`🛡 secret-guard · 4 redacted this session · last: github token #ea21bbd9 · Read fp-test.env:2 · ${hhmm}`)
+    const bash = [{ ...traced[0]!, tool: 'Bash', source: 'cat .env', line: 3, agent: 'agent-123456789' }]
+    const bashText = lastHitText('en', bash[0]!)
+    expect(bashText.startsWith('github token #ea21bbd9 · Bash cat .env')).toBe(true)
+    expect(bashText).toContain('agent-12')
+    expect(bashText).not.toContain(':3')
+    expect(lastHitText('zh-TW', traced[0]!)).toContain('Read fp-test.env:2')
     expect(bandText('en', { ...base, enabled: false, total: 3, recent })).toBe(null)
     const status = statusText('en', { ...base, total: 3, recent, byLabel: { 'google api key': 3 }, scanToolResults: true, now: 61_000 })
     expect(status).toContain('secret-guard: enabled')
@@ -748,7 +758,7 @@ describe('secret-guard', () => {
     await $.prompt.submit({ text: `a=${AKIA}`, origin: { kind: 'composer' }, wait: false } as any)
     for (const surface of ['terminal', 'desktop'] as const) {
       const texts = await bandTexts($, surface)
-      expect(texts[0]).toBe('🛡 secret-guard · 1 redacted this session · last: aws access key id (prompt)')
+      expect(texts[0]).toMatch(/^🛡 secret-guard · 1 redacted this session · last: aws access key id #[0-9a-f]{8} · prompt · \d\d:\d\d$/)
       expect(texts).toContain('ENGINE_DEFAULT')
     }
   })
@@ -758,7 +768,7 @@ describe('secret-guard', () => {
     await start($, w)
     await $.prompt.submit({ text: `key ${GOOGLE_KEY}`, origin: { kind: 'composer' }, wait: false } as any)
     expect(w.toasts.at(-1)).toBe('secret-guard：1 件を伏せました（google api key）')
-    expect((await bandTexts($))[0]).toBe('🛡 secret-guard · このセッションで 1 件伏せました · 直近：google api key（プロンプト）')
+    expect((await bandTexts($))[0]).toMatch(/^🛡 secret-guard · このセッションで 1 件伏せました · 直近：google api key #[0-9a-f]{8} · プロンプト · \d\d:\d\d$/)
     expect(await command($, 'off')).toContain('一時停止')
   })
 

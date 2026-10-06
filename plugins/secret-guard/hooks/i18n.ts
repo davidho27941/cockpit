@@ -40,7 +40,7 @@ const en = {
   'toast.redacted': (p: Params) => `secret-guard: redacted ${p.n} (${p.labels})`,
   'toast.redactedWhere': (p: Params) => `secret-guard: redacted ${p.n} (${p.labels}) in ${p.where}`,
   // band
-  'band.summary': (p: Params) => `🛡 secret-guard · ${p.n} redacted this session · last: ${p.label} (${p.where})`,
+  'band.summary': (p: Params) => `🛡 secret-guard · ${p.n} redacted this session · last: ${p.last}`,
   'band.paused': '🛡 secret-guard · paused (/secret-guard on resumes)',
   'band.badPatterns': (p: Params) => `🛡 secret-guard · ${p.n} invalid custom pattern(s) ignored: ${p.names}`,
   // where the text came in
@@ -87,7 +87,7 @@ export type Messages = Record<MessageKey, Message>
 const zhTW: Messages = {
   'toast.redacted': p => `secret-guard：已遮蔽 ${p.n} 處（${p.labels}）`,
   'toast.redactedWhere': p => `secret-guard：已遮蔽 ${p.n} 處（${p.labels}），來源 ${p.where}`,
-  'band.summary': p => `🛡 secret-guard · 本 session 已遮蔽 ${p.n} 處 · 最近：${p.label}（${p.where}）`,
+  'band.summary': p => `🛡 secret-guard · 本 session 已遮蔽 ${p.n} 處 · 最近：${p.last}`,
   'band.paused': '🛡 secret-guard · 已暫停（/secret-guard on 恢復）',
   'band.badPatterns': p => `🛡 secret-guard · ${p.n} 條自訂規則無法編譯，已略過：${p.names}`,
   'where.prompt': '提示',
@@ -129,7 +129,7 @@ const zhTW: Messages = {
 const ja: Messages = {
   'toast.redacted': p => `secret-guard：${p.n} 件を伏せました（${p.labels}）`,
   'toast.redactedWhere': p => `secret-guard：${p.n} 件を伏せました（${p.labels}）、${p.where}`,
-  'band.summary': p => `🛡 secret-guard · このセッションで ${p.n} 件伏せました · 直近：${p.label}（${p.where}）`,
+  'band.summary': p => `🛡 secret-guard · このセッションで ${p.n} 件伏せました · 直近：${p.last}`,
   'band.paused': '🛡 secret-guard · 一時停止中（/secret-guard on で再開）',
   'band.badPatterns': p => `🛡 secret-guard · カスタムパターン ${p.n} 件が無効のため無視：${p.names}`,
   'where.prompt': 'プロンプト',

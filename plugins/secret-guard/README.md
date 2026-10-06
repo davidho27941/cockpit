@@ -19,7 +19,7 @@ DATABASE_URL=postgres://app:<password>@db.internal:5432/app
 ```
 
 ```
-🛡 secret-guard · 2 redacted this session · last: password (tool result)
+🛡 secret-guard · 2 redacted this session · last: github token #ea21bbd9 · Read .env:4 · 14:02
 ```
 
 ## Where it hooks, and why

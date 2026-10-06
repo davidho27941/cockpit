@@ -661,7 +661,26 @@ export function bandText(lang: Lang, s: BandState): string | null {
   if (s.badPatterns.length) return t(lang, 'band.badPatterns', { n: s.badPatterns.length, names: s.badPatterns.map(p => p.split('=')[0]).join(', ') })
   if (s.total === 0) return null
   const last = s.recent[s.recent.length - 1]
-  return t(lang, 'band.summary', { n: s.total, label: last?.label ?? '', where: last ? whereText(lang, last.where, last.agent) : '' })
+  return t(lang, 'band.summary', { n: s.total, last: last ? lastHitText(lang, last) : '' })
+}
+
+/**
+ * The band's "last" part, one short phrase: label, fingerprint, the tool and the file's
+ * base name with its line (never the full path, which stays in /secret-guard), and the time.
+ * `github token #ea21bbd9 · Read fp-test.env:2 · 23:11`
+ */
+export function lastHitText(lang: Lang, h: RecentHit): string {
+  const head = h.fingerprint ? `${h.label} ${h.fingerprint}` : h.label
+  let where: string
+  if (h.tool && h.source) {
+    const short = shortSource(h.tool, h.source)
+    const isPath = !short.startsWith(`${h.tool} `) || !/\s/.test(short.slice(h.tool.length + 1))
+    where = isPath && h.line !== undefined ? `${short}:${h.line}` : short
+    if (h.agent) where += ` ${t(lang, 'cmd.hit.agent', { id: h.agent.slice(0, 8) })}`
+  } else {
+    where = whereText(lang, h.where, h.agent)
+  }
+  return [head, where, clockText(h.at)].join(' · ')
 }
 
 export type StatusState = BandState & { byLabel: Readonly<Record<string, number>>; scanToolResults: boolean; now: number; home?: string | null }
