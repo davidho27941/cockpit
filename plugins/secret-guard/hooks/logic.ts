@@ -526,7 +526,18 @@ export function toolSource(tool: string, input: Readonly<Record<string, unknown>
   const pick = (k: string) => (typeof input[k] === 'string' && (input[k] as string).trim() ? (input[k] as string) : undefined)
   const raw = pick('file_path') ?? pick('path') ?? pick('notebook_path') ?? (tool === 'Bash' ? pick('command') : undefined) ?? pick('pattern') ?? pick('url') ?? pick('query')
   if (raw === undefined) return undefined
-  return clip(redact(raw.replace(/\s+/g, ' ').trim(), settings).text, SOURCE_MAX)
+  return clipMiddle(redact(raw.replace(/\s+/g, ' ').trim(), settings).text, SOURCE_MAX)
+}
+
+/**
+ * Cuts the middle out of a long source so both ends survive: the start of a command
+ * and the file name at the end of a path (`/private/tmp/…/scratchpad/fp-test.env`).
+ */
+export function clipMiddle(s: string, max: number): string {
+  if (s.length <= max) return s
+  const head = Math.floor((max - 1) * 0.35)
+  const tail = max - 1 - head
+  return `${s.slice(0, head)}…${s.slice(s.length - tail)}`
 }
 
 export function clip(s: string, max: number): string {

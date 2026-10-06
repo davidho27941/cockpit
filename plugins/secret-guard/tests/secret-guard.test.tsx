@@ -9,6 +9,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_LANG, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
+  clipMiddle,
   BUILTIN_ALLOW,
   SCAN_DOORS,
   abbreviateHome,
@@ -833,5 +834,17 @@ describe('secret-guard', () => {
     expect(has(f.texts, /^─+$/)).toBe(false)
     expect(has(f.texts, /🛡 secret-guard · 1 redacted/)).toBe(true)
     expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+})
+
+describe('source clipping', () => {
+  test('a long path keeps its start and its file name', async () => {
+    const path = '/private/tmp/claude-501/' + 'x'.repeat(150) + '/scratchpad/fp-test.env'
+    const out = clipMiddle(path, 120)
+    expect(out.length).toBe(120)
+    expect(out.startsWith('/private/tmp/')).toBe(true)
+    expect(out.endsWith('/scratchpad/fp-test.env')).toBe(true)
+    expect(out.includes('…')).toBe(true)
+    expect(clipMiddle('short', 120)).toBe('short')
   })
 })
