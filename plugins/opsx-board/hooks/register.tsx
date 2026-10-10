@@ -367,36 +367,42 @@ export const register: Register = (on, options) => {
 
   // ── The task tool ─────────────────────────────────────────────────────────
 
+  /**
+   * A registered tool's result must be text (or content blocks): an object is refused
+   * by core's output check, so the answer goes to the model as one JSON line.
+   */
+  const answer = (body: Record<string, unknown>) => ({ result: JSON.stringify(body) })
+
   // A RegExp matcher: the plugin's own tool is not in the built-in tool union the types declare
   on('tool.call', { tool: /^mcp__opsx-board__task$/ }, async ($, e) => {
     const input = e as unknown as { task_id?: unknown; status?: unknown; note?: unknown }
     const id = String(input.task_id ?? '').trim()
     const status = String(input.status ?? '').trim()
     if (!id || (status !== 'start' && status !== 'done')) {
-      return { result: { ok: false, error: t(lang, 'tool.err.args') } }
+      return answer({ ok: false, error: t(lang, 'tool.err.args') })
     }
     const where = await resolveTasksFile($)
-    if (!where) return { result: { ok: false, error: t(lang, 'tool.err.noTasks') } }
+    if (!where) return answer({ ok: false, error: t(lang, 'tool.err.noTasks') })
     let text: string
     try {
       text = await $.fs.read(where.file)
     } catch {
-      return { result: { ok: false, error: t(lang, 'tool.err.read', { file: where.file }) } }
+      return answer({ ok: false, error: t(lang, 'tool.err.read', { file: where.file }) })
     }
     if ((await read($, phase)).kind === 'idle') await setPhase($, 'apply', where.change)
     if (status === 'start') {
       const list = await applyTasksText($, where.file, where.change, text, false)
       const item = list.items.find(i => i.id === id)
-      if (!item) return { result: { ok: false, error: t(lang, 'tool.err.unknown', { id }), known: list.items.filter(i => !i.done).map(i => i.id) } }
+      if (!item) return answer({ ok: false, error: t(lang, 'tool.err.unknown', { id }), known: list.items.filter(i => !i.done).map(i => i.id) })
       await update($, tasks, cur => (cur ? { ...cur, current: id } : cur))
       await refreshStatus($)
       const p = progressOf(list.items)
-      return { result: { ok: true, task: `${item.id} ${item.title}`, progress: `${p.done}/${p.total}` } }
+      return answer({ ok: true, task: `${item.id} ${item.title}`, progress: `${p.done}/${p.total}` })
     }
     const marked = markDone(text, id)
     if (!marked.found) {
       const list = await applyTasksText($, where.file, where.change, text)
-      return { result: { ok: false, error: t(lang, 'tool.err.unknown', { id }), known: list.items.filter(i => !i.done).map(i => i.id) } }
+      return answer({ ok: false, error: t(lang, 'tool.err.unknown', { id }), known: list.items.filter(i => !i.done).map(i => i.id) })
     }
     if (marked.changed) await $.fs.write(where.file, marked.text)
     const list = await applyTasksText($, where.file, where.change, marked.text, false)
@@ -404,15 +410,13 @@ export const register: Register = (on, options) => {
     const nextItem = list.items.find(i => !i.done) ?? null
     const done = list.items.find(i => i.id === id)
     toast($, t(lang, 'toast.taskDone', { id, title: truncate(done?.title ?? '', 30), progress: `${p.done}/${p.total}` }))
-    return {
-      result: {
-        ok: true,
-        marked: marked.changed,
-        progress: `${p.done}/${p.total}`,
-        next: nextItem ? `${nextItem.id} ${nextItem.title}` : null,
-        all_done: p.done === p.total,
-      },
-    }
+    return answer({
+      ok: true,
+      marked: marked.changed,
+      progress: `${p.done}/${p.total}`,
+      next: nextItem ? `${nextItem.id} ${nextItem.title}` : null,
+      all_done: p.done === p.total,
+    })
   })
 
   // ── Other tool calls: phase from paths / Bash, tasks.md tracking, agent counters ──
