@@ -9,6 +9,11 @@
 // to `ui`; it shadowed the imported translation function, so every pane rendered
 // empty and every hold ended in the error refusal.
 //
+// Modified by davidho27941 (2026-10-12): the pane shows the command one segment per row
+// (split where classify() splits it), the risky segment marked and coloured (command and
+// flags red, targets yellow), long chains folded; classify() adds `segmentIndex` to the
+// risk it returns. Classification, measuring and holding are unchanged.
+//
 // Blast Radius: holds a risky Bash command and shows what it would change.
 //
 // tool.call (Bash): if the command is risky, work out its blast radius, open a
@@ -79,7 +84,7 @@ export function register(on, options) {
         : await measure($, risk, cwd);
       summary = mine.report.summary;
 
-      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine.report) });
+      opened = await $.ui.open({ id: PANE_ID, title: "Blast Radius", focus: true, rows: paneRows(mine.report, mine.command) });
       if (!opened.isPlaced) {
         mine.where = "band";
       }
@@ -166,7 +171,9 @@ export function classify(command) {
   let dir = null; // where a `cd` earlier on the line moved to; null means the session folder
   const scopes = []; // dir to restore when a ( subshell ) closes
   const pushed = []; // pushd stack, for popd
+  let segmentIndex = -1;
   for (const raw of command.split(/&&|\|\||;|\||\n/)) {
+    segmentIndex += 1;
     const opens = (raw.match(/^\s*\(+/)?.[0].trim().length) ?? 0;
     // Trailing redirects and & don't hide a closing ) : `(cd sub && make) > log`.
     const tail = raw.replace(/(?:\s*(?:\d*>>?|&>>?|<)\s*\S+|\s*&)+\s*$/, "");
@@ -176,7 +183,7 @@ export function classify(command) {
     }
     const risk = classifySegment(raw, dir, pushed);
     if (risk !== null && risk.cd === undefined) {
-      return risk;
+      return { ...risk, segmentIndex }; // which segment, for the pane's highlight only
     }
     if (risk !== null) {
       dir = risk.cd; // a cd, pushd or popd moved the folder
@@ -510,8 +517,78 @@ function size(bytes) {
 
 // ---- Drawing --------------------------------------------------------------
 
-function paneRows(report) {
-  return Math.min(24, 9 + report.lines.length + (report.more ? 1 : 0));
+function paneRows(report, command = "") {
+  return Math.min(30, 9 + commandLines(command, -1).length + report.lines.length + (report.more ? 1 : 0));
+}
+
+// ---- Showing the command ---------------------------------------------------
+
+const SHOWN_SEGMENTS = 8; // more than this and the quiet ones around the risky one are folded
+const COMMAND_PREFIXES = new Set(["sudo", "command", "exec", "env", "nohup", "time", "nice", "then", "do", "else", "!"]);
+const HAS_SUBCOMMAND = new Set(["git", "alembic", "prisma", "npx", "python", "python3", "bin/rails", "rails", "rake", "bundle"]);
+
+/**
+ * The command split the way classify() splits it, one segment per row, each with the
+ * operator that follows it (`&&`, `|`, `;`), so a long chain reads top to bottom.
+ * Returns [{ text, op, isRisky }] or, when folded, a { fold: n } row in the middle.
+ */
+function commandLines(command, riskyIndex) {
+  const parts = command.split(/(&&|\|\||;|\||\n)/);
+  const rows = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const text = parts[i].trim();
+    const op = parts[i + 1] === "\n" ? "" : (parts[i + 1] ?? "");
+    if (text === "" && op === "") continue;
+    rows.push({ text, op, isRisky: i / 2 === riskyIndex });
+  }
+  if (rows.length <= SHOWN_SEGMENTS) return rows;
+  const at = Math.max(0, rows.findIndex((r) => r.isRisky));
+  const from = Math.max(0, Math.min(at - 3, rows.length - SHOWN_SEGMENTS));
+  const to = from + SHOWN_SEGMENTS;
+  const out = [];
+  if (from > 0) out.push({ fold: from });
+  out.push(...rows.slice(from, to));
+  if (to < rows.length) out.push({ fold: rows.length - to });
+  return out;
+}
+
+/** The risky segment as coloured words: the command and its flags red, its targets yellow. */
+function riskyWords(Text, text, keyBase) {
+  const pieces = text.split(/(\s+)/);
+  let seenHead = false;
+  let wantSub = false;
+  return pieces.map((piece, i) => {
+    const key = `${keyBase}-${i}`;
+    if (piece === "" || /^\s+$/.test(piece)) return piece;
+    if (!seenHead) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(piece) || COMMAND_PREFIXES.has(piece)) {
+        return Text({ key, dimColor: true, children: piece });
+      }
+      seenHead = true;
+      wantSub = HAS_SUBCOMMAND.has(piece.replace(/^.*\//, "")) || HAS_SUBCOMMAND.has(piece);
+      return Text({ key, color: "red", bold: true, children: piece });
+    }
+    if (piece.startsWith("-") || /^\+\S/.test(piece)) return Text({ key, color: "red", bold: true, children: piece });
+    if (wantSub) {
+      wantSub = false;
+      return Text({ key, color: "red", bold: true, children: piece });
+    }
+    return Text({ key, color: "yellow", children: piece });
+  });
+}
+
+function commandBlock(ui, state) {
+  const { Box, Text } = ui;
+  const rows = commandLines(state.command, state.risk.segmentIndex ?? -1).map((row, i) => {
+    const key = `c${i}`;
+    if (row.fold) return Text({ key, dimColor: true, children: `  ┆ ${t(lang, "more", { n: row.fold }).trim()}` });
+    const op = row.op ? Text({ key: `${key}-op`, dimColor: true, children: ` ${row.op}` }) : null;
+    if (row.isRisky) {
+      return Text({ key, wrap: "wrap", children: [Text({ key: `${key}-m`, color: "red", bold: true, children: "  ▶ " }), ...riskyWords(Text, row.text, key), op] });
+    }
+    return Text({ key, wrap: "wrap", dimColor: true, children: [`  │ ${row.text}`, op] });
+  });
+  return Box({ key: "cmd", flexDirection: "column", children: [Text({ key: "cmd-label", dimColor: true, children: t(lang, "command") }), ...rows] });
 }
 
 function draw(ui, state) {
@@ -534,7 +611,7 @@ function draw(ui, state) {
     paddingX: 1,
     children: [
       Text({ key: "title", bold: true, color: "yellow", children: t(lang, "title", { label: state.risk.label }) }),
-      Text({ key: "cmd", children: [Text({ dimColor: true, children: t(lang, "command") }), Text({ bold: true, children: state.command })], wrap: "truncate-end" }),
+      commandBlock(ui, state),
       Text({ key: "sum", children: [Text({ dimColor: true, children: t(lang, "would") }), Text({ color: "red", bold: true, children: report.summary })] }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,

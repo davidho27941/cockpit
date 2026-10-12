@@ -6,7 +6,10 @@ This mod comes from Anthropic's [claude-code-playground](https://github.com/anth
 
 ```
 ╭─ ⚠ Blast Radius · rm -rf ─────────────────────────────────────╮
-│ Command  rm -rf build                                         │
+│ Command                                                       │
+│   │ npm run build &&                                          │
+│   ▶ rm -rf build &&                                           │
+│   │ echo done                                                 │
 │ Would    delete 128 files (about 4.2 MB)                      │
 │                                                               │
 │   build/index.js                                              │
@@ -18,6 +21,8 @@ This mod comes from Anthropic's [claude-code-playground](https://github.com/anth
 ╰───────────────────────────────────────────────────────────────╯
 ```
 
+
+The command is shown one segment per row, split at `&&`, `||`, `;`, `|` and newlines, with the operator at the end of each row. The risky segment is marked `▶`: its command and flags in red, its targets in yellow; the other segments are dim. A chain longer than eight segments folds the quiet ones around the risky segment (`┆ + N more`).
 ## What it holds, and what the pane shows
 
 | Command | The pane shows |

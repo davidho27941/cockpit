@@ -74,11 +74,11 @@ describe('messages', () => {
 
 describe('classify', () => {
   test('risky commands are classified, harmless ones are not', async () => {
-    expect(classify(`${RM_RF} build`)).toEqual({ kind: 'rm', label: RM_RF, targets: ['build'], dir: null })
+    expect(classify(`${RM_RF} build`)).toEqual({ kind: 'rm', label: RM_RF, targets: ['build'], dir: null, segmentIndex: 0 })
     expect(classify(RESET_HARD)?.kind).toBe('git-reset')
     expect(classify(`${PUSH_FORCE} origin main`)?.kind).toBe('git-push-force')
     expect(classify('git clean -fdx')?.kind).toBe('git-clean')
-    expect(classify(`cd sub && ${RM_RF} dist`)).toEqual({ kind: 'rm', label: RM_RF, targets: ['dist'], dir: 'sub' })
+    expect(classify(`cd sub && ${RM_RF} dist`)).toEqual({ kind: 'rm', label: RM_RF, targets: ['dist'], dir: 'sub', segmentIndex: 1 })
     expect(classify('ls -la')).toBe(null)
     expect(classify('rm file.txt')).toBe(null)
     expect(classify('git status')).toBe(null)
