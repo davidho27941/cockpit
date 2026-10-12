@@ -7,7 +7,9 @@ The hold-and-ask pattern follows Anthropic's blast-radius mod in this repo; the 
 ```
 ╭─ ⚠ gcloud-guard · destructive ──────────────────────────────────────────────╮
 │ delete compute instances web-1, web-2                                       │
-│ Command   gcloud compute instances delete web-1 web-2 --zone us-central1-a  │
+│ Command                                                                     │
+│   │ gcloud config list &&                                                   │
+│   ▶ gcloud compute instances delete web-1 web-2 --zone us-central1-a        │
 │ Account   dev@example.com                                                   │
 │ Project   demo-proj  ← from gcloud config  · Config default                 │
 │ Location  us-central1-a                                                     │
@@ -19,6 +21,8 @@ The hold-and-ask pattern follows Anthropic's blast-radius mod in this repo; the 
 │ 1: Proceed   2: Cancel   Claude is waiting on your answer                   │
 ╰─────────────────────────────────────────────────────────────────────────────╯
 ```
+
+The command is shown one segment per row, split at `&&`, `||`, `;`, `|` and newlines, with the operator at the end of each row. The segment that would change something is marked `▶`: `gcloud` / `gsutil` and the verb in red, `alpha` / `beta` in magenta, `--quiet`, `--force` and `-r` style flags in red, other flags dim, targets in yellow; the other segments are dim. A chain longer than eight segments folds the quiet ones around it.
 
 ## What it holds
 

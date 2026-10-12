@@ -653,9 +653,10 @@ export function denyText(lang: Lang, why: 'cancel' | 'timeout' | 'interrupted' |
 }
 
 /** The rows the pane would need: title and headline, the context block, the lines, the notes, the buttons row. */
-export function paneRows(report: Report | null, hasGke = false): number {
-  if (!report) return 8
-  return Math.min(28, 9 + report.lines.length + report.notes.length + (report.context.quiet ? 1 : 0) + (report.context.track !== 'ga' ? 1 : 0) + (hasGke ? 1 : 0))
+export function paneRows(report: Report | null, hasGke = false, commandRowCount = 1): number {
+  const extra = Math.max(0, commandRowCount)
+  if (!report) return 8 + extra
+  return Math.min(32, 9 + extra + report.lines.length + report.notes.length + (report.context.quiet ? 1 : 0) + (report.context.track !== 'ga' ? 1 : 0) + (hasGke ? 1 : 0))
 }
 
 // ── The context line: gcloud and kube config files ─────────────────────────
@@ -806,4 +807,82 @@ export type BandStyle = 'box' | 'rule' | 'plain'
 /** The `band_style` option; anything but `rule` or `plain` is the default box. */
 export function parseBandStyle(v: unknown): BandStyle {
   return v === 'rule' || v === 'plain' ? v : 'box'
+}
+
+// ── Showing the command ────────────────────────────────────────────────────
+
+/** More segments than this and the quiet ones around the risky one are folded. */
+export const SHOWN_SEGMENTS = 8
+
+export type CommandRow = { text: string; op: string; isRisky: boolean } | { fold: number }
+
+/**
+ * The command split where splitSegments() splits it, one row per segment with the operator
+ * that follows it, the segment classify() matched marked; long chains fold around it.
+ */
+export function commandRows(command: string, riskyRaw: string): CommandRow[] {
+  const parts = command.split(/(&&|\|\||;|\||\n)/)
+  const rows: { text: string; op: string; isRisky: boolean }[] = []
+  let marked = false
+  for (let i = 0; i < parts.length; i += 2) {
+    const text = (parts[i] ?? '').trim()
+    const sep = parts[i + 1]
+    const op = sep === undefined || sep === '\n' ? '' : sep
+    if (!text && !op) continue
+    const isRisky = !marked && text === riskyRaw.trim()
+    if (isRisky) marked = true
+    rows.push({ text, op, isRisky })
+  }
+  if (rows.length <= SHOWN_SEGMENTS) return rows
+  const at = Math.max(0, rows.findIndex(r => r.isRisky))
+  const from = Math.max(0, Math.min(at - 3, rows.length - SHOWN_SEGMENTS))
+  const to = from + SHOWN_SEGMENTS
+  const out: CommandRow[] = []
+  if (from > 0) out.push({ fold: from })
+  out.push(...rows.slice(from, to))
+  if (to < rows.length) out.push({ fold: rows.length - to })
+  return out
+}
+
+export type WordKind = 'space' | 'prefix' | 'head' | 'track' | 'group' | 'verb' | 'danger-flag' | 'flag' | 'target' | 'plain'
+
+const DANGER_FLAGS = /^(-q|--quiet|--force|-f|--delete-unmatched-destination-objects|-d|--recursive|-r|-R)$/
+
+/**
+ * The risky segment as classified words for colouring: the tool and the verb red, the
+ * release track magenta, `--quiet` / `--force` style flags red, other flags dim, targets yellow.
+ */
+export function riskyWords(text: string, risk: Pick<Risk, 'path' | 'verb' | 'targets'>): { text: string; kind: WordKind }[] {
+  const pieces = text.split(/(\s+)/)
+  const targets = new Set(risk.targets)
+  const groups = [...risk.path]
+  let seenHead = false
+  let seenVerb = false
+  return pieces
+    .filter(p => p !== '')
+    .map(piece => {
+      if (/^\s+$/.test(piece)) return { text: piece, kind: 'space' as const }
+      const bare = piece.replace(/^['"]|['"]$/g, '')
+      if (!seenHead) {
+        if (/^(gcloud|gsutil)$/.test(bare.replace(/^.*\//, '').replace(/^\\/, ''))) {
+          seenHead = true
+          return { text: piece, kind: 'head' as const }
+        }
+        return { text: piece, kind: 'prefix' as const }
+      }
+      if (!seenVerb) {
+        if (bare === 'alpha' || bare === 'beta') return { text: piece, kind: 'track' as const }
+        if (bare === risk.verb) {
+          seenVerb = true
+          return { text: piece, kind: 'verb' as const }
+        }
+        if (groups.length && bare === groups[0]) {
+          groups.shift()
+          return { text: piece, kind: 'group' as const }
+        }
+      }
+      if (bare.startsWith('-')) return { text: piece, kind: DANGER_FLAGS.test(bare.split('=')[0] ?? bare) ? ('danger-flag' as const) : ('flag' as const) }
+      if (targets.has(bare)) return { text: piece, kind: 'target' as const }
+      return { text: piece, kind: 'plain' as const }
+    })
 }

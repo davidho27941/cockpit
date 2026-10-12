@@ -8,6 +8,8 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_LANG, DENY_TAIL, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
+  commandRows,
+  riskyWords,
   CONTEXT_TICK_MS,
   HOLD_LIMIT_MS,
   buildContext,
@@ -848,5 +850,54 @@ describe('gcloud-guard', () => {
     expect(has(f.texts, /^─+$/)).toBe(false)
     expect(f.texts[0]).toContain('☁ gcloud · project side-project-staging')
     expect(has(f.texts, /ENGINE_DEFAULT/)).toBe(true)
+  })
+
+  test('a chained command is shown one segment per row with the risky one marked', async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    const call = bash($, 'gcloud config list && gcloud compute instances delete web-1 --zone us-central1-a -q && echo done')
+    await w.clock.settle()
+    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
+    const lines = await textsOf(ui)
+    expect(has(lines, /^ {2}│ gcloud config list &&$/)).toBe(true)
+    expect(has(lines, /^ {2}▶ gcloud compute instances delete web-1 --zone us-central1-a -q &&$/)).toBe(true)
+    expect(has(lines, /^ {2}│ echo done$/)).toBe(true)
+    await ui.press({ key: 'cancel' })
+    await w.clock.advance(300)
+    expect((await call).deny).toBeDefined()
+  })
+})
+
+describe('command display', () => {
+  test('commandRows marks the risky segment and folds long chains', async () => {
+    const rows = commandRows('a && gcloud x delete y; b | c', 'gcloud x delete y')
+    expect(rows).toEqual([
+      { text: 'a', op: '&&', isRisky: false },
+      { text: 'gcloud x delete y', op: ';', isRisky: true },
+      { text: 'b', op: '|', isRisky: false },
+      { text: 'c', op: '', isRisky: false },
+    ])
+    const long = [...Array.from({ length: 6 }, (_, i) => `echo a${i}`), 'gcloud x delete y', ...Array.from({ length: 6 }, (_, i) => `echo b${i}`)].join(' && ')
+    const folded = commandRows(long, 'gcloud x delete y')
+    expect(folded.filter(r => 'fold' in r).length).toBe(2)
+    expect(folded.some(r => 'isRisky' in r && r.isRisky)).toBe(true)
+  })
+
+  test('riskyWords colours the tool, verb, quiet flag and targets', async () => {
+    const words = riskyWords('CLOUDSDK_X=1 gcloud beta compute instances delete web-1 --zone us-central1-a -q', { path: ['compute', 'instances'], verb: 'delete', targets: ['web-1'] })
+      .filter(w => w.kind !== 'space')
+      .map(w => `${w.text}:${w.kind}`)
+    expect(words).toEqual([
+      'CLOUDSDK_X=1:prefix',
+      'gcloud:head',
+      'beta:track',
+      'compute:group',
+      'instances:group',
+      'delete:verb',
+      'web-1:target',
+      '--zone:flag',
+      'us-central1-a:plain',
+      '-q:danger-flag',
+    ])
   })
 })

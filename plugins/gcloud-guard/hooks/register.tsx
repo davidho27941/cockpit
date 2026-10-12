@@ -42,7 +42,9 @@ import {
   isRsyncDelete,
   keyFlagsLine,
   listObjectsArgv,
+  commandRows,
   paneRows,
+  riskyWords,
   projectDescribeArgv,
   readSettings,
   servicesListArgv,
@@ -393,11 +395,53 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
     </Text>,
   )
   rows.push(
-    <Text key="cmd" wrap="truncate-end">
-      <Text dimColor>{`${t(L, 'label.command')}  `}</Text>
-      <Text bold>{truncate(view.command, Math.max(20, columns - 12))}</Text>
+    <Text key="cmd-label" dimColor>
+      {t(L, 'label.command')}
     </Text>,
   )
+  commandRows(view.command, risk.raw).forEach((row, i) => {
+    const key = `cmd-${i}`
+    if ('fold' in row) {
+      rows.push(
+        <Text key={key} dimColor>
+          {`  ┆ ${t(L, 'more', { n: row.fold })}`}
+        </Text>,
+      )
+      return
+    }
+    const op = row.op ? <Text dimColor>{` ${row.op}`}</Text> : null
+    if (!row.isRisky) {
+      rows.push(
+        <Text key={key} dimColor wrap="wrap">
+          {`  │ ${row.text}`}
+          {op}
+        </Text>,
+      )
+      return
+    }
+    rows.push(
+      <Text key={key} wrap="wrap">
+        <Text color={color} bold>
+          {'  ▶ '}
+        </Text>
+        {riskyWords(row.text, risk).map((w, j) =>
+          w.kind === 'space' ? (
+            w.text
+          ) : (
+            <Text
+              key={`${key}-${j}`}
+              color={w.kind === 'head' || w.kind === 'verb' || w.kind === 'danger-flag' ? 'red' : w.kind === 'target' ? 'yellow' : w.kind === 'track' ? 'magenta' : undefined}
+              bold={w.kind === 'head' || w.kind === 'verb' || w.kind === 'danger-flag' || w.kind === 'group' || undefined}
+              dimColor={w.kind === 'prefix' || w.kind === 'flag' || undefined}
+            >
+              {w.text}
+            </Text>
+          ),
+        )}
+        {op}
+      </Text>,
+    )
+  })
   rows.push(
     <Text key="account" wrap="truncate-end">
       <Text dimColor>{`${t(L, 'label.account')}  `}</Text>
@@ -507,7 +551,7 @@ async function holdCommand($: any, e: any, next: any, risk: Risk): Promise<any> 
     await update($, heldState, () => mine.view)
     try {
       const snap = (await read($, contextState)) as GcloudContext | null
-      opened = await $.ui.open({ id: PANE, title: `gcloud-guard · ${severityLabel(lang, risk.severity)}`, focus: true, rows: paneRows(report, snap?.kube?.kind === 'gke') })
+      opened = await $.ui.open({ id: PANE, title: `gcloud-guard · ${severityLabel(lang, risk.severity)}`, focus: true, rows: paneRows(report, snap?.kube?.kind === 'gke', commandRows(command, risk.raw).length) })
     } catch {
       opened = { isPlaced: false }
     }
