@@ -12,7 +12,9 @@
 // Modified by davidho27941 (2026-10-12): the pane shows the command one segment per row
 // (split where classify() splits it), the risky segment marked and coloured (command and
 // flags red, targets yellow), long chains folded; classify() adds `segmentIndex` to the
-// risk it returns. Classification, measuring and holding are unchanged.
+// risk it returns; the pane no longer draws a second border inside its own frame (the
+// band keeps one) and its sections are spaced. Classification, measuring and holding
+// are unchanged.
 //
 // Blast Radius: holds a risky Bash command and shows what it would change.
 //
@@ -604,14 +606,17 @@ function draw(ui, state) {
       state.decision = choice;
     }
   };
+  // The pane has its own frame and tab, so only the band draws a border of its own
+  const frame = state.where === "band" ? { borderStyle: "round", borderColor: "yellow" } : {};
   return Box({
     flexDirection: "column",
-    borderStyle: "round",
-    borderColor: "yellow",
+    ...frame,
     paddingX: 1,
     children: [
       Text({ key: "title", bold: true, color: "yellow", children: t(lang, "title", { label: state.risk.label }) }),
+      Text({ key: "gap-1", children: " " }),
       commandBlock(ui, state),
+      Text({ key: "gap-2", children: " " }),
       Text({ key: "sum", children: [Text({ dimColor: true, children: t(lang, "would") }), Text({ color: "red", bold: true, children: report.summary })] }),
       Box({ key: "list", flexDirection: "column", marginTop: 1, children: list }),
       report.note ? Text({ key: "note", dimColor: true, italic: true, children: report.note, wrap: "wrap" }) : null,

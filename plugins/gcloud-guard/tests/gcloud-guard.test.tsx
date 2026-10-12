@@ -8,6 +8,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { DEFAULT_LANG, DENY_TAIL, LANGS, MESSAGES, resolveLang, t } from '../hooks/i18n'
 import {
+  stripHeredocs,
   commandRows,
   riskyWords,
   CONTEXT_TICK_MS,
@@ -510,8 +511,8 @@ describe('gcloud-guard', () => {
     expect(w.lookups.some(a => a.join(' ') === 'gcloud compute instances describe web-1 --format=json --zone=us-central1-a')).toBe(true)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
     const texts = await textsOf(ui)
-    expect(has(texts, /gcloud-guard · destructive/)).toBe(true)
-    expect(has(texts, /^delete compute instances web-1$/)).toBe(true)
+    expect(has(texts, /^⚠ destructive · /)).toBe(true)
+    expect(has(texts, / · delete compute instances web-1$/)).toBe(true)
     expect(has(texts, /demo-proj/)).toBe(true)
     expect(has(texts, /from gcloud config/)).toBe(true)
     expect(has(texts, /dev@example\.com/)).toBe(true)
@@ -558,7 +559,7 @@ describe('gcloud-guard', () => {
     await w.clock.settle()
     const band = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
     const texts = await textsOf(band)
-    expect(has(texts, /gcloud-guard · mutating/)).toBe(true)
+    expect(has(texts, /^⚠ mutating · /)).toBe(true)
     expect(has(texts, /stop compute instances web-1/)).toBe(true)
     expect(has(texts, /ENGINE_DEFAULT/)).toBe(false)
     await band.press({ key: 'cancel' })
@@ -694,7 +695,7 @@ describe('gcloud-guard', () => {
     await w.clock.settle()
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
     const texts = await textsOf(ui)
-    expect(has(texts, /gcloud-guard · 破壊的/)).toBe(true)
+    expect(has(texts, /^⚠ 破壊的 · /)).toBe(true)
     expect(has(texts, /Claude はあなたの回答を待っています/)).toBe(true)
     const cancel = await ui.find({ key: 'cancel' })
     expect(cancel?.text).toBe('キャンセル')
@@ -804,7 +805,7 @@ describe('gcloud-guard', () => {
     const call = bash($, 'gcloud compute instances delete web-1')
     await w.clock.settle()
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
-    expect(has(await textsOf(ui), /gcloud-guard · 破壞性/)).toBe(true)
+    expect(has(await textsOf(ui), /^⚠ 破壞性 · /)).toBe(true)
     await ui.press({ key: 'cancel' })
     await ui.unmount()
     await w.clock.advance(300)
@@ -899,5 +900,12 @@ describe('command display', () => {
       'us-central1-a:plain',
       '-q:danger-flag',
     ])
+  })
+
+  test('heredoc bodies are data, not commands', async () => {
+    const D = ['gcloud', 'compute instances', 'delete web-1'].join(' ')
+    expect(stripHeredocs(`python3 - <<'EOF'\nprint("${D}")\nEOF\necho ok`)).toBe(`python3 - <<'EOF'\necho ok`)
+    expect(classify(`python3 - <<'EOF'\nx = "a && ${D}"\nEOF`, readSettings({}))).toBe(null)
+    expect(classify(`cat <<-EOT\n\t${D}\n\tEOT\n${D} --zone z`, readSettings({}))?.verb).toBe('delete')
   })
 })

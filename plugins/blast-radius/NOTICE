@@ -39,7 +39,9 @@ Modifications by davidho27941 (2026-10-12):
   each row; the risky segment is marked and coloured (command and flags red,
   targets yellow) and long chains fold the quiet segments around it.
   classify() adds a `segmentIndex` field to the risk it returns, used only
-  for that highlight. Classification, measuring and holding are unchanged.
+  for that highlight. The pane no longer draws a second border inside its own
+  frame (the band keeps one), and its sections are separated by blank rows.
+  Classification, measuring and holding are unchanged.
 - tests: hold tests for the per-segment rows and the folding.
 
 Unmodified upstream files: hooks/hooks.json, screenshots/*, and the upstream

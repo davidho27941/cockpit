@@ -384,16 +384,15 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
     if (held && held.view.id === view.id && held.decision === null) held.decision = choice
   }
   const rows: any[] = []
+  // Labels of the context block share one column width, measured in terminal cells
+  const labelWidth = Math.max(...[t(L, 'label.account'), t(L, 'label.project'), t(L, 'label.location'), t(L, 'label.gke')].map(cellWidth))
+  const label = (text: string) => <Text dimColor>{`${padCells(text, labelWidth)}  `}</Text>
   rows.push(
-    <Text key="title" bold color={color}>
-      {t(L, 'title', { severity: severityLabel(L, risk.severity) })}
+    <Text key="head" bold color={color} wrap="wrap">
+      {`⚠ ${severityLabel(L, risk.severity)} · ${report?.headline ?? headline(L, risk)}`}
     </Text>,
   )
-  rows.push(
-    <Text key="head" bold color={color} wrap="truncate-end">
-      {report?.headline ?? headline(L, risk)}
-    </Text>,
-  )
+  rows.push(<Text key="gap-1">{' '}</Text>)
   rows.push(
     <Text key="cmd-label" dimColor>
       {t(L, 'label.command')}
@@ -442,16 +441,17 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
       </Text>,
     )
   })
+  rows.push(<Text key="gap-2">{' '}</Text>)
   rows.push(
     <Text key="account" wrap="truncate-end">
-      <Text dimColor>{`${t(L, 'label.account')}  `}</Text>
+      {label(t(L, 'label.account'))}
       <Text>{ctx.account ?? unknown}</Text>
       {ctx.impersonate ? <Text dimColor>{`  (impersonating ${ctx.impersonate})`}</Text> : null}
     </Text>,
   )
   rows.push(
     <Text key="project" wrap="truncate-end">
-      <Text dimColor>{`${t(L, 'label.project')}  `}</Text>
+      {label(t(L, 'label.project'))}
       <Text bold>{ctx.project ?? unknown}</Text>
       {projectSource ? <Text dimColor>{`  ${projectSource}`}</Text> : null}
       {ctx.configuration ? <Text dimColor>{`  · ${t(L, 'label.configuration')} ${ctx.configuration}`}</Text> : null}
@@ -459,7 +459,7 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
   )
   rows.push(
     <Text key="location" wrap="truncate-end">
-      <Text dimColor>{`${t(L, 'label.location')}  `}</Text>
+      {label(t(L, 'label.location'))}
       <Text>{location}</Text>
       {ctx.track !== 'ga' ? <Text color="magenta">{`  · ${t(L, 'label.track')} ${ctx.track}`}</Text> : null}
     </Text>,
@@ -467,16 +467,17 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
   if (gke && gke.kind === 'gke') {
     rows.push(
       <Text key="gke" wrap="truncate-end">
-        <Text dimColor>{`${t(L, 'label.gke')}  `}</Text>
+        {label(t(L, 'label.gke'))}
         <Text>{`${gke.cluster} (${gke.location})`}</Text>
         {gke.project && ctx.project && gke.project !== ctx.project ? <Text color="yellow">{`  ≠ ${t(L, 'label.project').toLowerCase()} ${gke.project}`}</Text> : null}
       </Text>,
     )
   }
   if (ctx.quiet) {
+    rows.push(<Text key="gap-3">{' '}</Text>)
     rows.push(
-      <Text key="quiet" color="yellow">
-        {t(L, 'quiet.warn')}
+      <Text key="quiet" color="yellow" bold wrap="wrap">
+        {`! ${t(L, 'quiet.warn')}`}
       </Text>,
     )
   }
@@ -493,7 +494,7 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
   }
   if (report && report.notes.length) {
     rows.push(
-      <Box key="notes" flexDirection="column">
+      <Box key="notes" flexDirection="column" marginTop={1}>
         {report.notes.map((note, i) => (
           <Text key={`n${i}`} dimColor italic wrap="wrap">
             {note}
@@ -518,11 +519,27 @@ function draw($: any, e: any, view: HeldView, columns: number, gke: GcloudContex
       </Text>
     </Box>,
   )
-  return (
+  // The pane has its own frame (and a tab naming the mod), so only the band draws a border
+  return view.where === 'band' ? (
     <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1}>
       {rows}
     </Box>
+  ) : (
+    <Box flexDirection="column" paddingX={1}>
+      {rows}
+    </Box>
   )
+}
+
+/** Terminal cells a string takes: wide (CJK, fullwidth) characters take two. */
+function cellWidth(text: string): number {
+  let n = 0
+  for (const ch of text) n += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
+  return n
+}
+
+function padCells(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - cellWidth(text)))
 }
 
 // ── The hold ───────────────────────────────────────────────────────────────

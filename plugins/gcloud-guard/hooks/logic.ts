@@ -100,6 +100,28 @@ export function tokenize(text: string): string[] {
   return words
 }
 
+/**
+ * The command line with heredoc bodies removed (`<<EOF` … `EOF`, `<<-'EOF'` …): their text is
+ * data handed to a program on stdin, not commands, so a script or a test file written through
+ * `python3 - <<'EOF'` that merely mentions `gcloud … delete` is not held.
+ */
+export function stripHeredocs(command: string): string {
+  const lines = command.split('\n')
+  const out: string[] = []
+  let end: { word: string; tabs: boolean } | null = null
+  for (const line of lines) {
+    if (end) {
+      const probe = end.tabs ? line.replace(/^\t+/, '') : line
+      if (probe === end.word) end = null
+      continue
+    }
+    out.push(line)
+    const m = /<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(line)
+    if (m && m[3]) end = { word: m[3], tabs: m[1] === '-' }
+  }
+  return out.join('\n')
+}
+
 /** The command line split on &&, ||, ;, | and newlines (quotes are not honoured here, as in the shell's coarse view). */
 export function splitSegments(command: string): string[] {
   return command
@@ -420,7 +442,7 @@ export function classifyGsutil(args: readonly string[], raw: string): Risk | nul
 
 /** The first gcloud / gsutil segment of the command line that would change something, or null. */
 export function classify(command: string, settings: Settings): Risk | null {
-  for (const raw of splitSegments(command)) {
+  for (const raw of splitSegments(stripHeredocs(command))) {
     const words = stripWrappers(tokenize(raw))
     const first = words[0]
     if (!first) continue
